@@ -1,0 +1,10 @@
+__pycache__/
+runs/
+desktop/bin/
+desktop/obj/
+dist/
+.build-home/
+.nuget/
+installer/appbundle.zip
+/app.py
+/metadata-cleaner-batch/
