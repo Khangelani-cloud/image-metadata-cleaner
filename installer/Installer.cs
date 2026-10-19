@@ -112,11 +112,18 @@ internal static class SetupProgram
         string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(cleanup));
         string script = "Add-Type -AssemblyName System.Windows.Forms\r\n$answer=[System.Windows.Forms.MessageBox]::Show('Remove Image Metadata Cleaner?`n`nYour images and reports will not be removed.','Image Metadata Cleaner',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)\r\nif($answer -ne [System.Windows.Forms.DialogResult]::Yes){exit}\r\nStart-Process powershell.exe -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-EncodedCommand','" + encoded + "') -WindowStyle Hidden\r\n";
         File.WriteAllText(scriptPath, script, new UTF8Encoding(false));
+        string displayVersion = "1.1.0";
+        try
+        {
+            Version version = AssemblyName.GetAssemblyName(Path.Combine(programFolder, Product + ".dll")).Version;
+            if (version != null) displayVersion = version.ToString(3);
+        }
+        catch { }
         using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
         {
             key.SetValue("DisplayName", Product);
             key.SetValue("Publisher", Product);
-            key.SetValue("DisplayVersion", "1.0.0");
+            key.SetValue("DisplayVersion", displayVersion);
         key.SetValue("InstallLocation", programFolder);
             key.SetValue("UninstallString", "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"" + scriptPath + "\"");
             key.SetValue("NoModify", 1, RegistryValueKind.DWord);
