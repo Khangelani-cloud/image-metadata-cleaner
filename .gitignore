@@ -6,5 +6,6 @@ dist/
 .build-home/
 .nuget/
 installer/appbundle.zip
+.build-tools/
 /app.py
 /metadata-cleaner-batch/
