@@ -10,6 +10,8 @@ $dist = Join-Path $root 'dist'
 $appFolder = Join-Path $dist 'app'
 $setupFolder = Join-Path $dist 'setup'
 $runtimeRoot = 'C:\Program Files\dotnet'
+$ffmpegZip = Join-Path $root '.build-tools\ffmpeg.zip'
+$ffmpegRoot = Join-Path $root '.build-tools\ffmpeg'
 
 New-Item -ItemType Directory -Force -Path (Join-Path $env:APPDATA 'NuGet'), $appFolder, $setupFolder | Out-Null
 Copy-Item -LiteralPath $nugetConfig -Destination (Join-Path $env:APPDATA 'NuGet\NuGet.Config') -Force
@@ -44,6 +46,16 @@ foreach ($entry in @(
     New-Item -ItemType Directory -Force -Path $entry.Destination | Out-Null
     Copy-Item -Path (Join-Path $entry.Source '*') -Destination $entry.Destination -Recurse -Force
 }
+
+if (-not (Test-Path (Join-Path $ffmpegRoot 'ffmpeg.exe'))) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $ffmpegZip), $ffmpegRoot | Out-Null
+    Write-Host 'Downloading the FFmpeg video metadata engine…'
+    Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $ffmpegZip
+    Expand-Archive -LiteralPath $ffmpegZip -DestinationPath $ffmpegRoot -Force
+}
+$ffmpegBinary = Get-ChildItem -LiteralPath $ffmpegRoot -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+if (-not $ffmpegBinary) { throw 'The FFmpeg video metadata engine could not be found.' }
+Copy-Item -LiteralPath $ffmpegBinary.FullName -Destination (Join-Path $appFolder 'ffmpeg.exe') -Force
 
 $frameworkCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $frameworkCompiler)) { throw 'The Windows .NET Framework compiler was not found.' }

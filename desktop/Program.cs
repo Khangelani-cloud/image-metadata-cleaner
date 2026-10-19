@@ -27,7 +27,7 @@ internal sealed class MainForm : Form
     private readonly RadioButton _c2paAndXmp = new() { Text = "Remove C2PA and all XMP — may also remove descriptions, dates, copyright and edit history", AutoSize = true };
     private readonly Button _process = new() { Text = "Inspect and create cleaned copies", AutoSize = true, Padding = new Padding(10, 7, 10, 7), BackColor = Color.FromArgb(28, 106, 78), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Enabled = false };
     private readonly ProgressBar _progress = new() { Dock = DockStyle.Fill, Height = 18, Minimum = 0, Maximum = 100 };
-    private readonly Label _status = new() { Text = "Add JPEG files to begin.", AutoSize = true, ForeColor = Color.DimGray };
+    private readonly Label _status = new() { Text = "Add images or videos to begin.", AutoSize = true, ForeColor = Color.DimGray };
     private readonly List<string> _paths = new();
     private bool _busy;
 
@@ -64,21 +64,21 @@ internal sealed class MainForm : Form
 
     private Control BuildInputPanel()
     {
-        var group = new GroupBox { Text = "1. Choose JPEG images", Dock = DockStyle.Fill, Padding = new Padding(12) };
+        var group = new GroupBox { Text = "1. Choose images or videos", Dock = DockStyle.Fill, Padding = new Padding(12) };
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
         group.Controls.Add(layout);
         layout.Controls.Add(_files, 0, 0);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        var add = new Button { Text = "Add images…", Width = 140, Height = 38 };
-        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose JPEG images", Filter = "JPEG images (*.jpg;*.jpeg)|*.jpg;*.jpeg", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
+        var add = new Button { Text = "Add files…", Width = 140, Height = 38 };
+        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose images or videos", Filter = "Supported files (*.jpg;*.jpeg;*.mp4;*.mov;*.m4v;*.m4a;*.3gp;*.3g2)|*.jpg;*.jpeg;*.mp4;*.mov;*.m4v;*.m4a;*.3gp;*.3g2|All files (*.*)|*.*", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
         var folder = new Button { Text = "Add a folder…", Width = 140, Height = 38 };
         folder.Click += (_, _) =>
         {
-            using var dlg = new FolderBrowserDialog { Description = "Choose a folder containing JPEG images", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+            using var dlg = new FolderBrowserDialog { Description = "Choose a folder containing supported images or videos", UseDescriptionForTitle = true, ShowNewFolderButton = false };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { AddPaths(Directory.EnumerateFiles(dlg.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsJpeg).ToArray()); }
+            try { AddPaths(Directory.EnumerateFiles(dlg.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsSupported).ToArray()); }
             catch (Exception ex) { MessageBox.Show(this, $"Windows could not read that folder.\n\n{ex.Message}", "Folder could not be opened", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         };
         var remove = new Button { Text = "Remove selected", Width = 140, Height = 38 };
@@ -138,7 +138,7 @@ internal sealed class MainForm : Form
     private Control BuildFooter()
     {
         var footer = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(0, 10, 0, 0) };
-        footer.Controls.Add(new Label { Text = "JPEG/JPG only · each batch gets its own dated folder · original files are left untouched", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 4, 0, 0) });
+        footer.Controls.Add(new Label { Text = "JPEG/JPG and MP4/MOV/M4V videos · each batch gets its own dated folder · original files are left untouched", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 4, 0, 0) });
         var updates = new LinkLabel { Text = "Check for updates", AutoSize = true, LinkColor = Color.FromArgb(28, 106, 78), Padding = new Padding(12, 4, 0, 0) };
         updates.Click += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: false);
         footer.Controls.Add(updates);
@@ -146,10 +146,11 @@ internal sealed class MainForm : Form
     }
 
     private static bool IsJpeg(string path) => string.Equals(Path.GetExtension(path), ".jpg", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(path), ".jpeg", StringComparison.OrdinalIgnoreCase);
+    private static bool IsSupported(string path) => IsJpeg(path) || VideoMetadataCleaner.IsSupported(path);
 
     private void AddPaths(IEnumerable<string> paths)
     {
-        foreach (var path in paths.Where(IsJpeg).Where(File.Exists))
+        foreach (var path in paths.Where(IsSupported).Where(File.Exists))
             if (!_paths.Contains(path, StringComparer.OrdinalIgnoreCase)) _paths.Add(path);
         RefreshFileList();
     }
@@ -159,7 +160,7 @@ internal sealed class MainForm : Form
         _files.Items.Clear();
         foreach (var path in _paths) _files.Items.Add(path);
         _process.Enabled = _paths.Count > 0 && !_busy;
-        _status.Text = _paths.Count == 0 ? "Add JPEG files to begin." : $"{_paths.Count:N0} image(s) ready.";
+        _status.Text = _paths.Count == 0 ? "Add images or videos to begin." : $"{_paths.Count:N0} file(s) ready.";
     }
 
     private async Task ProcessBatchAsync()
@@ -190,13 +191,23 @@ internal sealed class MainForm : Form
             _status.Refresh();
             try
             {
-                var data = await File.ReadAllBytesAsync(path);
-                var info = JpegMetadata.Inspect(data);
-                var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
                 var fileBase = Path.GetFileNameWithoutExtension(path);
-                var outputName = MakeUniqueName(target, fileBase, index + 1);
-                await File.WriteAllBytesAsync(Path.Combine(target, outputName), cleaned);
-                var row = new ReportRow { File = path, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
+                var outputName = MakeUniqueName(target, fileBase, index + 1, Path.GetExtension(path));
+                var outputPath = Path.Combine(target, outputName);
+                ReportRow row;
+                if (IsJpeg(path))
+                {
+                    var data = await File.ReadAllBytesAsync(path);
+                    var info = JpegMetadata.Inspect(data);
+                    var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
+                    await File.WriteAllBytesAsync(outputPath, cleaned);
+                    row = new ReportRow { File = path, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
+                }
+                else
+                {
+                    var result = await VideoMetadataCleaner.CleanAsync(path, outputPath);
+                    row = new ReportRow { File = path, Status = "Cleaned", Output = outputName, Removed = result.Removed, Mode = "Video standard metadata removed; stream copied", Warning = result.Warning, BytesIn = new FileInfo(path).Length, BytesOut = new FileInfo(outputPath).Length };
+                }
                 records.Add(row); cleanedCount++;
                 AddResultRow(row);
             }
@@ -214,13 +225,13 @@ internal sealed class MainForm : Form
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.json"), JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true }));
             var csv = BuildCsv(records);
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.csv"), "\uFEFF" + csv, Encoding.UTF8);
-            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nThe app copies the compressed JPEG scan without recompression and keeps EXIF, IPTC, ICC, and JFIF data.\r\n");
+            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nC2PA details in image reports are embedded claims only. Signatures, certificates, and trust were not verified.\r\nVideos are stream-copied without re-encoding and standard container metadata is removed. Vendor-specific or signed provenance boxes may require separate verification.\r\n");
         }
         catch (Exception ex) { MessageBox.Show(this, $"The images were processed, but the reports could not be saved.\n\n{ex.Message}", "Report save issue", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         _status.Text = $"Finished: {cleanedCount:N0} cleaned, {skippedCount:N0} skipped. Reports are in the chosen folder.";
         _busy = false;
         _process.Enabled = _paths.Count > 0;
-        MessageBox.Show(this, $"Finished processing {selected.Length:N0} image(s).\n\nCleaned copies: {cleanedCount:N0}\nSkipped: {skippedCount:N0}\n\nThe originals were not changed.\n\nSave folder:\n{target}", "Batch complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(this, $"Finished processing {selected.Length:N0} file(s).\n\nCleaned copies: {cleanedCount:N0}\nSkipped: {skippedCount:N0}\n\nThe originals were not changed.\n\nSave folder:\n{target}", "Batch complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void AddResultRow(ReportRow row)
@@ -232,28 +243,29 @@ internal sealed class MainForm : Form
         if (meta?.Xmp.Present == true) found.Add("XMP");
         if (meta?.C2pa.Present == true) found.Add("C2PA");
         var claims = meta?.C2pa.Claims.Count > 0 ? string.Join(", ", meta.C2pa.Claims) : "—";
-        _results.Rows.Add(Path.GetFileName(row.File), row.Status, found.Count == 0 ? "No target metadata" : string.Join(", ", found), claims);
+        var summary = found.Count == 0 ? (row.Removed.Count == 0 ? "No reported metadata" : "Video metadata") : string.Join(", ", found);
+        _results.Rows.Add(Path.GetFileName(row.File), row.Status, summary, claims);
     }
 
-    private static string MakeUniqueName(string folder, string stem, int ordinal)
+    private static string MakeUniqueName(string folder, string stem, int ordinal, string extension)
     {
         var safe = Regex.Replace(stem, @"[^\p{L}\p{Nd}._ -]", "_").Trim(' ', '.');
         if (safe.Length > 100) safe = safe[..100];
         if (string.IsNullOrWhiteSpace(safe)) safe = "image";
-        var candidate = $"{ordinal:0000}_{safe}_cleaned.jpg";
+        var candidate = $"{ordinal:0000}_{safe}_cleaned{extension}";
         var suffix = 1;
-        while (File.Exists(Path.Combine(folder, candidate))) candidate = $"{ordinal:0000}_{safe}_cleaned_{suffix++}.jpg";
+        while (File.Exists(Path.Combine(folder, candidate))) candidate = $"{ordinal:0000}_{safe}_cleaned_{suffix++}{extension}";
         return candidate;
     }
 
     private static string BuildCsv(IEnumerable<ReportRow> rows)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("File,Status,Output,Mode,Removed,EXIF,IPTC,XMP,C2PA,ICC profile,JFIF,C2PA claim hints,Error");
+        sb.AppendLine("File,Status,Output,Mode,Removed,EXIF,IPTC,XMP,C2PA,ICC profile,JFIF,C2PA claim hints,Warning,Error");
         foreach (var r in rows)
         {
             var m = r.Metadata;
-            var values = new[] { r.File, r.Status, r.Output ?? "", r.Mode ?? "", string.Join("; ", r.Removed), Bool(m?.Exif.Present), Bool(m?.Iptc.Present), Bool(m?.Xmp.Present), Bool(m?.C2pa.Present), Bool(m?.IccProfile), Bool(m?.Jfif), string.Join("; ", m?.C2pa.Claims ?? new()), r.Error ?? "" };
+            var values = new[] { r.File, r.Status, r.Output ?? "", r.Mode ?? "", string.Join("; ", r.Removed), Bool(m?.Exif.Present), Bool(m?.Iptc.Present), Bool(m?.Xmp.Present), Bool(m?.C2pa.Present), Bool(m?.IccProfile), Bool(m?.Jfif), string.Join("; ", m?.C2pa.Claims ?? new()), r.Warning ?? "", r.Error ?? "" };
             sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
         }
         return sb.ToString();
@@ -274,6 +286,7 @@ internal sealed class ReportRow
     public long BytesIn { get; set; }
     public long BytesOut { get; set; }
     public string? Error { get; set; }
+    public string? Warning { get; set; }
 }
 
 internal sealed class MetadataInfo
