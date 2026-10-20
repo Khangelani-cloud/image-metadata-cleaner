@@ -46,7 +46,7 @@ internal static class UpdateService
             }
 
             var asset = release.GetProperty("assets").EnumerateArray()
-                .FirstOrDefault(x => string.Equals(x.GetProperty("name").GetString(), AssetName, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(x => IsInstallerAsset(x.GetProperty("name").GetString()));
             if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("The update package is not available yet.");
             var downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
             if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com")
@@ -91,5 +91,13 @@ internal static class UpdateService
             owner.Text = "Image Metadata Cleaner";
             if (!quiet) MessageBox.Show(owner, "The update could not be downloaded. Please try again later.\n\n" + ex.Message, "Update unavailable", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+    }
+
+    private static bool IsInstallerAsset(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var normalized = new string(name.Where(char.IsLetterOrDigit).ToArray());
+        var expected = new string(AssetName.Where(char.IsLetterOrDigit).ToArray());
+        return string.Equals(normalized, expected, StringComparison.OrdinalIgnoreCase);
     }
 }
