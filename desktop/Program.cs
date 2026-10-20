@@ -72,7 +72,7 @@ internal sealed class MainForm : Form
         layout.Controls.Add(_files, 0, 0);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         var add = new Button { Text = "Add files…", Width = 140, Height = 38 };
-        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose images or videos", Filter = "Supported files (*.jpg;*.jpeg;*.mp4;*.mov;*.m4v;*.m4a;*.3gp;*.3g2)|*.jpg;*.jpeg;*.mp4;*.mov;*.m4v;*.m4a;*.3gp;*.3g2|All files (*.*)|*.*", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
+        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose images or videos", Filter = "Supported files (*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.webm;*.mkv)|*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.webm;*.mkv|All files (*.*)|*.*", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
         var folder = new Button { Text = "Add a folder…", Width = 140, Height = 38 };
         folder.Click += (_, _) =>
         {
@@ -85,7 +85,9 @@ internal sealed class MainForm : Form
         remove.Click += (_, _) => { var selected = _files.SelectedItems.Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase); _paths.RemoveAll(selected.Contains); RefreshFileList(); };
         var clear = new Button { Text = "Clear list", Width = 140, Height = 38 };
         clear.Click += (_, _) => { _paths.Clear(); RefreshFileList(); };
-        buttons.Controls.AddRange(new Control[] { add, folder, remove, clear });
+        var inspect = new Button { Text = "Inspect selected video", Width = 140, Height = 38 };
+        inspect.Click += async (_, _) => await InspectSelectedVideoAsync();
+        buttons.Controls.AddRange(new Control[] { add, folder, remove, clear, inspect });
         layout.Controls.Add(buttons, 1, 0);
         return group;
     }
@@ -146,7 +148,40 @@ internal sealed class MainForm : Form
     }
 
     private static bool IsJpeg(string path) => string.Equals(Path.GetExtension(path), ".jpg", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(path), ".jpeg", StringComparison.OrdinalIgnoreCase);
-    private static bool IsSupported(string path) => IsJpeg(path) || VideoMetadataCleaner.IsSupported(path);
+    private static bool IsSupported(string path) => IsJpeg(path) || VideoInspectionService.IsInspectable(path) || VideoMetadataCleaner.IsSupported(path);
+
+    private async Task InspectSelectedVideoAsync()
+    {
+        var path = _files.SelectedItems.Cast<string>().FirstOrDefault(VideoInspectionService.IsInspectable);
+        if (path == null) { MessageBox.Show(this, "Select an MP4, MOV, AVI, M4V, WebM or MKV video first.", "Choose a video", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        try
+        {
+            UseWaitCursor = true;
+            var report = await VideoInspectionService.InspectAsync(path);
+            ShowInspectionReport(report);
+        }
+        catch (Exception ex) { MessageBox.Show(this, "The video inspection failed.\n\n" + ex.Message, "Inspection failed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        finally { UseWaitCursor = false; }
+    }
+
+    private void ShowInspectionReport(VideoInspectionReport report)
+    {
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
+        using var dialog = new Form { Text = "Video inspection — " + report.File.Name, StartPosition = FormStartPosition.CenterParent, MinimumSize = new Size(900, 650), Size = new Size(1100, 780) };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), RowCount = 2, ColumnCount = 1 };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        var status = new Label { Text = $"Status: {report.Inspection.Status}    Container: {report.File.DetectedContainer}    Warnings: {report.Inspection.Warnings.Count}", AutoSize = true, Padding = new Padding(0, 7, 18, 0) };
+        var search = new TextBox { PlaceholderText = "Search report", Width = 180 };
+        var copy = new Button { Text = "Copy JSON", AutoSize = true };
+        var export = new Button { Text = "Export JSON…", AutoSize = true };
+        toolbar.Controls.AddRange(new Control[] { status, search, copy, export });
+        var output = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, Font = new Font("Consolas", 9.5F), BackColor = Color.White, Text = json, DetectUrls = false };
+        search.TextChanged += (_, _) => { var term = search.Text.Trim(); output.SelectAll(); output.SelectionBackColor = Color.White; if (term.Length > 0) { var index = output.Text.IndexOf(term, StringComparison.OrdinalIgnoreCase); if (index >= 0) { output.Select(index, term.Length); output.SelectionBackColor = Color.Yellow; output.ScrollToCaret(); } } output.Select(0, 0); };
+        copy.Click += (_, _) => { Clipboard.SetText(json); status.Text = "JSON copied to the clipboard."; };
+        export.Click += (_, _) => { using var save = new SaveFileDialog { Filter = "JSON report (*.json)|*.json", FileName = Path.GetFileNameWithoutExtension(report.File.Name) + "-inspection.json", AddExtension = true }; if (save.ShowDialog(dialog) == DialogResult.OK) { File.WriteAllText(save.FileName, json, Encoding.UTF8); status.Text = "Report exported: " + save.FileName; } };
+        layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(output, 0, 1); dialog.Controls.Add(layout); dialog.ShowDialog(this);
+    }
 
     private void AddPaths(IEnumerable<string> paths)
     {

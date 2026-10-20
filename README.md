@@ -16,6 +16,10 @@ If Windows warns that the app is from an unknown publisher, that is because this
 2. Choose whether to remove C2PA alone or C2PA plus all XMP.
 3. Choose where to save the batch and select **Inspect and create cleaned copies**.
 
+To inspect a video, add it to the file list, select it, and choose **Inspect selected video**. The inspector supports MP4, MOV, AVI, M4V, WebM and MKV containers where FFprobe can read them. It reports container and stream properties, codecs, dimensions, frame rates, audio details, timestamps, recognized software evidence, AI-related metadata indicators, C2PA-related fields, and warnings. Use **Copy JSON** or **Export JSON** in the inspection window to save the structured report.
+
+The installer bundles FFmpeg and, when present in the downloaded FFmpeg archive, FFprobe. ExifTool is optional: install it separately and put `exiftool.exe` on PATH (or beside the app) to inspect additional XMP/IPTC and application-specific tags. C2PA manifests are detected when exposed as metadata, but this build does not validate C2PA signatures or signer trust; it never treats missing credentials as proof that a video was not AI-generated or edited. Software names are reported only as metadata evidence and do not prove the complete editing history.
+
 The app makes a new dated folder for each batch. Original files are never modified. It saves a CSV report, a JSON report, and a short explanation beside the cleaned copies. Unsupported files and damaged media are reported as skipped.
 
 **Remove C2PA only** keeps XMP, EXIF, IPTC, ICC profiles, JFIF and other JPEG metadata. Provenance details that may also appear in XMP remain.
@@ -26,6 +30,8 @@ C2PA values in the report are readable embedded claims. The app does not validat
 
 For MP4, MOV, M4V, M4A, 3GP and 3G2 files, the app uses the bundled FFmpeg engine to remove standard container metadata and chapters while copying the audio/video streams without re-encoding. Vendor-specific or signed provenance boxes are not guaranteed to be removed; the report calls out this limitation.
 
+Video inspection and cleaning are local operations. The inspector does not upload media or metadata. FFprobe and optional ExifTool are invoked with argument arrays and read-only inputs; malformed or unsupported files produce an error or warning report rather than a clean result. Platform labels from services such as Instagram can also use signals beyond file metadata, so removing metadata cannot guarantee removal or prevention of an AI-related label.
+
 ## Uninstall
 
 Use **Settings → Apps → Installed apps** (or **Apps & features** on older Windows versions), choose **Image Metadata Cleaner**, and select **Uninstall**. Your source images and saved reports are not removed.
@@ -33,6 +39,10 @@ Use **Settings → Apps → Installed apps** (or **Apps & features** on older Wi
 ## Build the installer from source
 
 The source project is in `desktop/`, the setup program is in `installer/`, and `build-package.ps1` builds the x64 installer. Building requires the .NET 8 Windows Desktop SDK and the Windows .NET Framework compiler. The build bundles the .NET runtime so end users do not need to download it separately.
+
+## Tests and validation
+
+Build the desktop project with `dotnet build desktop/MetadataCleaner.csproj -c Release --no-restore`. This repository currently has no automated test project or committed media fixtures; inspect malformed files and files requiring FFprobe/ExifTool on a Windows machine with those tools available before release.
 
 ## Updates
 
