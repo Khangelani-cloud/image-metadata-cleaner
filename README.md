@@ -12,11 +12,11 @@ If Windows warns that the app is from an unknown publisher, that is because this
 
 ## Use the app
 
-1. Add JPEG images or MP4/MOV/M4V video files, or choose a folder. Folder selection includes subfolders.
+1. Add JPEG images or supported video files, or choose a folder. Folder selection includes subfolders. Supported video formats are MP4, MOV, AVI, M4V, M4A, 3GP, 3G2, WebM and MKV.
 2. Choose whether to remove C2PA alone or C2PA plus all XMP.
 3. Choose where to save the batch and select **Inspect and create cleaned copies**.
 
-To inspect a video, add it to the file list, select it, and choose **Inspect selected video**. The inspector supports MP4, MOV, AVI, M4V, WebM and MKV containers where FFprobe can read them. It reports container and stream properties, codecs, dimensions, frame rates, audio details, timestamps, recognized software evidence, AI-related metadata indicators, C2PA-related fields, and warnings. Use **Copy JSON** or **Export JSON** in the inspection window to save the structured report.
+Supported videos are inspected automatically when they are added to the file list; when one video is added, its inspection report opens automatically. You can also select a video and choose **Inspect selected video**. The inspector supports MP4, MOV, AVI, M4V, M4A, 3GP, 3G2, WebM and MKV containers where FFprobe can read them. It reports container and stream properties, codecs, dimensions, frame rates, audio details, timestamps, recognized software evidence, AI-related metadata indicators, C2PA-related fields, and warnings. Use **Copy JSON** or **Export JSON** in the inspection window to save the structured report.
 
 The installer bundles FFmpeg and, when present in the downloaded FFmpeg archive, FFprobe. ExifTool is optional: install it separately and put `exiftool.exe` on PATH (or beside the app) to inspect additional XMP/IPTC and application-specific tags. C2PA manifests are detected when exposed as metadata, but this build does not validate C2PA signatures or signer trust; it never treats missing credentials as proof that a video was not AI-generated or edited. Software names are reported only as metadata evidence and do not prove the complete editing history.
 

@@ -7,7 +7,7 @@ internal sealed record VideoCleanResult(string OutputPath, List<string> Removed,
 
 internal static class VideoMetadataCleaner
 {
-    private static readonly string[] SupportedExtensions = [".mp4", ".mov", ".m4v", ".m4a", ".3gp", ".3g2"];
+    private static readonly string[] SupportedExtensions = [".mp4", ".mov", ".avi", ".m4v", ".m4a", ".3gp", ".3g2", ".webm", ".mkv"];
 
     public static bool IsSupported(string path) => SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 

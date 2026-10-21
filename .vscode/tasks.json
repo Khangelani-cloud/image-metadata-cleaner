@@ -1,0 +1,20 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Metadata Cleaner",
+			"type": "shell",
+			"command": "dotnet",
+			"args": [
+				"run",
+				"--project",
+				"desktop/MetadataCleaner.csproj",
+				"-c",
+				"Release",
+				"--no-restore"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

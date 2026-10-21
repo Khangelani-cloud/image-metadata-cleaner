@@ -29,6 +29,7 @@ internal sealed class MainForm : Form
     private readonly ProgressBar _progress = new() { Dock = DockStyle.Fill, Height = 18, Minimum = 0, Maximum = 100 };
     private readonly Label _status = new() { Text = "Add images or videos to begin.", AutoSize = true, ForeColor = Color.DimGray };
     private readonly List<string> _paths = new();
+    private readonly Dictionary<string, VideoInspectionReport> _videoInspections = new(StringComparer.OrdinalIgnoreCase);
     private bool _busy;
 
     public MainForm()
@@ -57,7 +58,7 @@ internal sealed class MainForm : Form
 
         _files.SelectedIndexChanged += (_, _) => _process.Enabled = _paths.Count > 0 && !_busy;
         _files.DragEnter += (_, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
-        _files.DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) AddPaths(paths); };
+        _files.DragDrop += async (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) await AddPathsAsync(paths); };
         _process.Click += async (_, _) => await ProcessBatchAsync();
         Shown += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: true);
     }
@@ -65,20 +66,22 @@ internal sealed class MainForm : Form
     private Control BuildInputPanel()
     {
         var group = new GroupBox { Text = "1. Choose images or videos", Dock = DockStyle.Fill, Padding = new Padding(12) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         group.Controls.Add(layout);
         layout.Controls.Add(_files, 0, 0);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         var add = new Button { Text = "Add files…", Width = 140, Height = 38 };
-        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose images or videos", Filter = "Supported files (*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.webm;*.mkv)|*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.webm;*.mkv|All files (*.*)|*.*", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
+        add.Click += async (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose images or videos", Filter = "Supported files (*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.m4a;*.3gp;*.3g2;*.webm;*.mkv)|*.jpg;*.jpeg;*.mp4;*.mov;*.avi;*.m4v;*.m4a;*.3gp;*.3g2;*.webm;*.mkv|All files (*.*)|*.*", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) await AddPathsAsync(dlg.FileNames); };
         var folder = new Button { Text = "Add a folder…", Width = 140, Height = 38 };
-        folder.Click += (_, _) =>
+        folder.Click += async (_, _) =>
         {
             using var dlg = new FolderBrowserDialog { Description = "Choose a folder containing supported images or videos", UseDescriptionForTitle = true, ShowNewFolderButton = false };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { AddPaths(Directory.EnumerateFiles(dlg.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsSupported).ToArray()); }
+            try { await AddPathsAsync(Directory.EnumerateFiles(dlg.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsSupported).ToArray()); }
             catch (Exception ex) { MessageBox.Show(this, $"Windows could not read that folder.\n\n{ex.Message}", "Folder could not be opened", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         };
         var remove = new Button { Text = "Remove selected", Width = 140, Height = 38 };
@@ -89,6 +92,9 @@ internal sealed class MainForm : Form
         inspect.Click += async (_, _) => await InspectSelectedVideoAsync();
         buttons.Controls.AddRange(new Control[] { add, folder, remove, clear, inspect });
         layout.Controls.Add(buttons, 1, 0);
+        var formats = new Label { Text = $"Supported video formats: {VideoInspectionService.SupportedFormatsDescription}", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 6, 0, 0), Margin = new Padding(0, 0, 0, 3) };
+        layout.Controls.Add(formats, 0, 1);
+        layout.SetColumnSpan(formats, 2);
         return group;
     }
 
@@ -153,11 +159,11 @@ internal sealed class MainForm : Form
     private async Task InspectSelectedVideoAsync()
     {
         var path = _files.SelectedItems.Cast<string>().FirstOrDefault(VideoInspectionService.IsInspectable);
-        if (path == null) { MessageBox.Show(this, "Select an MP4, MOV, AVI, M4V, WebM or MKV video first.", "Choose a video", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+        if (path == null) { MessageBox.Show(this, $"Select a supported video first.\n\nSupported formats: {VideoInspectionService.SupportedFormatsDescription}.", "Choose a video", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         try
         {
             UseWaitCursor = true;
-            var report = await VideoInspectionService.InspectAsync(path);
+            var report = await InspectVideoAsync(path);
             ShowInspectionReport(report);
         }
         catch (Exception ex) { MessageBox.Show(this, "The video inspection failed.\n\n" + ex.Message, "Inspection failed", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
@@ -183,11 +189,31 @@ internal sealed class MainForm : Form
         layout.Controls.Add(toolbar, 0, 0); layout.Controls.Add(output, 0, 1); dialog.Controls.Add(layout); dialog.ShowDialog(this);
     }
 
-    private void AddPaths(IEnumerable<string> paths)
+    private async Task AddPathsAsync(IEnumerable<string> paths)
     {
+        var added = new List<string>();
         foreach (var path in paths.Where(IsSupported).Where(File.Exists))
             if (!_paths.Contains(path, StringComparer.OrdinalIgnoreCase)) _paths.Add(path);
         RefreshFileList();
+        foreach (var path in paths.Where(VideoInspectionService.IsInspectable).Where(File.Exists).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!_paths.Contains(path, StringComparer.OrdinalIgnoreCase) || _videoInspections.ContainsKey(path)) continue;
+            added.Add(path);
+            _status.Text = $"Inspecting video: {Path.GetFileName(path)}";
+            _status.Refresh();
+            try { _videoInspections[path] = await VideoInspectionService.InspectAsync(path); }
+            catch (Exception ex) { _status.Text = $"Could not inspect {Path.GetFileName(path)}: {ex.Message}"; }
+        }
+        RefreshFileList();
+        if (added.Count == 1 && _videoInspections.TryGetValue(added[0], out var report)) ShowInspectionReport(report);
+    }
+
+    private async Task<VideoInspectionReport> InspectVideoAsync(string path)
+    {
+        if (_videoInspections.TryGetValue(path, out var cached)) return cached;
+        var report = await VideoInspectionService.InspectAsync(path);
+        _videoInspections[path] = report;
+        return report;
     }
 
     private void RefreshFileList()

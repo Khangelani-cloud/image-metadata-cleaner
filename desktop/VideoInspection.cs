@@ -102,7 +102,8 @@ internal sealed class VideoC2paInfo
 
 internal static class VideoInspectionService
 {
-    private static readonly string[] SupportedExtensions = [".mp4", ".mov", ".avi", ".m4v", ".webm", ".mkv"];
+    internal const string SupportedFormatsDescription = "MP4, MOV, AVI, M4V, M4A, 3GP, 3G2, WebM and MKV";
+    private static readonly string[] SupportedExtensions = [".mp4", ".mov", ".avi", ".m4v", ".m4a", ".3gp", ".3g2", ".webm", ".mkv"];
 
     public static bool IsInspectable(string path) => SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
 
