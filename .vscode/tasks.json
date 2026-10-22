@@ -15,6 +15,106 @@
 			],
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Build metadata cleaner installer",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				".\\build-package.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build metadata cleaner installer (retry)",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"build-package.ps1"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify video inspection packaging",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$app = Get-Item 'dist\\app\\ffprobe.exe' -ErrorAction Stop; $installer = Get-Item 'dist\\Image Metadata Cleaner Setup.exe' -ErrorAction Stop; Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead('installer\\appbundle.zip'); try { $entry = $zip.Entries | Where-Object { $_.FullName -ieq 'ffprobe.exe' } | Select-Object -First 1; [pscustomobject]@{ AppFfprobe=$app.FullName; AppFfprobeBytes=$app.Length; Installer=$installer.FullName; InstallerBytes=$installer.Length; BundleFfprobe=if($entry){$entry.FullName}else{'MISSING'}; BundleFfprobeBytes=if($entry){$entry.Length}else{0} } | Format-List } finally { $zip.Dispose() }"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify packaged ffprobe file",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Item \"dist/app/ffprobe.exe\" | Select-Object FullName,Length | Format-List; Get-Item \"dist/Image Metadata Cleaner Setup.exe\" | Select-Object FullName,Length | Format-List"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify installer bundle ffprobe",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead(\"installer/appbundle.zip\"); try { $zip.Entries | Where-Object { $_.FullName -ieq \"ffprobe.exe\" } | Select-Object FullName,Length | Format-List } finally { $zip.Dispose() }"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify video error messaging",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Select-String -Path \"desktop/Program.cs\" -Pattern \"The video inspection failed\",\"Status = \\\"Skipped\\\"\",\"Inspection failed\" | Select-Object LineNumber,Line | Format-Table -AutoSize"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify video error messaging retry",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Select-String -Path \"desktop/Program.cs\" -Pattern \"The video inspection failed\" | Select-Object LineNumber,Line; Select-String -Path \"desktop/Program.cs\" -Pattern \"Inspection failed\" | Select-Object LineNumber,Line; Select-String -Path \"desktop/Program.cs\" -Pattern \"Status =\" | Select-Object LineNumber,Line"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify FFprobe build guards",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Select-String -Path \"build-package.ps1\" -Pattern \"ffprobe.exe\",\"does not contain ffprobe\",\"could not be copied\" | Select-Object LineNumber,Line"
+			],
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

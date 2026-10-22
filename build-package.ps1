@@ -61,6 +61,9 @@ if (-not $ffprobeBinary) {
     throw 'The FFprobe video inspection engine could not be found. The installer will not be created without ffprobe.exe.'
 }
 Copy-Item -LiteralPath $ffprobeBinary.FullName -Destination (Join-Path $appFolder 'ffprobe.exe') -Force
+if (-not (Test-Path -LiteralPath (Join-Path $appFolder 'ffprobe.exe'))) {
+    throw 'FFprobe was found but could not be copied beside the app executable.'
+}
 
 $frameworkCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $frameworkCompiler)) { throw 'The Windows .NET Framework compiler was not found.' }
@@ -72,6 +75,16 @@ if ($LASTEXITCODE -ne 0) { throw 'The app launcher could not be compiled.' }
 $installerProject = Join-Path $root 'installer'
 $bundle = Join-Path $installerProject 'appbundle.zip'
 Compress-Archive -Path (Join-Path $appFolder '*') -DestinationPath $bundle -CompressionLevel Optimal -Force
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$bundleArchive = [System.IO.Compression.ZipFile]::OpenRead($bundle)
+try {
+    if (-not ($bundleArchive.Entries.FullName | Where-Object { $_ -ieq 'ffprobe.exe' })) {
+        throw 'The installer app bundle does not contain ffprobe.exe.'
+    }
+}
+finally {
+    $bundleArchive.Dispose()
+}
 $installerSource = Join-Path $installerProject 'Installer.cs'
 $setupOutput = Join-Path $setupFolder 'Image Metadata Cleaner Setup.exe'
 & $frameworkCompiler /nologo /target:winexe /out:$setupOutput /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$bundle,appbundle.zip" $installerSource
