@@ -47,7 +47,7 @@ foreach ($entry in @(
     Copy-Item -Path (Join-Path $entry.Source '*') -Destination $entry.Destination -Recurse -Force
 }
 
-if (-not (Test-Path (Join-Path $ffmpegRoot 'ffmpeg.exe'))) {
+if (-not (Test-Path (Join-Path $ffmpegRoot 'ffmpeg.exe')) -or -not (Test-Path (Join-Path $ffmpegRoot 'ffprobe.exe'))) {
     New-Item -ItemType Directory -Force -Path (Split-Path $ffmpegZip), $ffmpegRoot | Out-Null
     Write-Host 'Downloading the FFmpeg video metadata engine…'
     Invoke-WebRequest -Uri 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $ffmpegZip
@@ -57,7 +57,10 @@ $ffmpegBinary = Get-ChildItem -LiteralPath $ffmpegRoot -Filter ffmpeg.exe -Recur
 if (-not $ffmpegBinary) { throw 'The FFmpeg video metadata engine could not be found.' }
 Copy-Item -LiteralPath $ffmpegBinary.FullName -Destination (Join-Path $appFolder 'ffmpeg.exe') -Force
 $ffprobeBinary = Get-ChildItem -LiteralPath $ffmpegRoot -Filter ffprobe.exe -Recurse | Select-Object -First 1
-if ($ffprobeBinary) { Copy-Item -LiteralPath $ffprobeBinary.FullName -Destination (Join-Path $appFolder 'ffprobe.exe') -Force }
+if (-not $ffprobeBinary) {
+    throw 'The FFprobe video inspection engine could not be found. The installer will not be created without ffprobe.exe.'
+}
+Copy-Item -LiteralPath $ffprobeBinary.FullName -Destination (Join-Path $appFolder 'ffprobe.exe') -Force
 
 $frameworkCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $frameworkCompiler)) { throw 'The Windows .NET Framework compiler was not found.' }
