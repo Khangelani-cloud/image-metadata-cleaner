@@ -50,14 +50,14 @@ internal sealed partial class MainForm
         });
         titleStack.Controls.Add(new Label
         {
-            Text = "Inspect photos and save cleaned copies. Your originals are never changed.",
+            Text = "Inspect photos and videos. Photo originals are never changed.",
             AutoSize = true,
             Font = UiTheme.GetFont(UiTheme.TaglineFont),
             ForeColor = UiTheme.Secondary,
             BackColor = UiTheme.Window,
             Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space4), 0, 0)
         });
-        var pill = new PillLabel { Text = "JPEG only · originals untouched", Anchor = AnchorStyles.Right, Margin = new Padding(UiTheme.Scale(this, UiTheme.Space12), 0, 0, 0) };
+        var pill = new PillLabel { Text = "Photo + video • inspection only", Anchor = AnchorStyles.Right, Margin = new Padding(UiTheme.Scale(this, UiTheme.Space12), 0, 0, 0) };
         header.Controls.Add(titleStack, 0, 0);
         header.Controls.Add(pill, 1, 0);
         return header;
@@ -69,7 +69,7 @@ internal sealed partial class MainForm
         var layout = new BufferedTableLayoutPanel { Dock = DockStyle.Top, BackColor = UiTheme.Surface, ColumnCount = 1, RowCount = 2, AutoSize = true, Margin = Padding.Empty };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.Controls.Add(SectionHeading("1", "Choose JPEG images"), 0, 0);
+        layout.Controls.Add(SectionHeading("1", "Choose photos or videos"), 0, 0);
 
         var content = new BufferedTableLayoutPanel { Dock = DockStyle.Top, BackColor = UiTheme.Surface, ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space10), 0, 0) };
         content.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -78,9 +78,9 @@ internal sealed partial class MainForm
         left.RowStyles.Add(new RowStyle(SizeType.Absolute, UiTheme.Scale(this, UiTheme.ImageActionsHeight)));
         left.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         _fileListLayout = left;
-        _dropZone.Title = "Drag JPEG photos here, or use the buttons";
+        _dropZone.Title = "Drag photos or videos here, or use the buttons";
         _dropZone.AccessibleName = _dropZone.Title;
-        _dropZone.Description = "JPEG/JPG only";
+        _dropZone.Description = "JPEG, MP4, MOV";
         _dropZone.FilesDropped += HandleFilesDropped;
         left.Controls.Add(_dropZone, 0, 0);
         StyleFileList();
@@ -118,8 +118,8 @@ internal sealed partial class MainForm
         {
             using var dialog = new OpenFileDialog
             {
-                Title = "Choose JPEG images",
-                Filter = "JPEG images (*.jpg;*.jpeg)|*.jpg;*.jpeg",
+                Title = "Choose photos or videos",
+                Filter = "Photo and video files (*.jpg;*.jpeg;*.mp4;*.m4v;*.mov)|*.jpg;*.jpeg;*.mp4;*.m4v;*.mov|JPEG images (*.jpg;*.jpeg)|*.jpg;*.jpeg|Videos (*.mp4;*.m4v;*.mov)|*.mp4;*.m4v;*.mov",
                 Multiselect = true,
                 CheckFileExists = true
             };
@@ -134,10 +134,10 @@ internal sealed partial class MainForm
         };
         _clearListButton.Click += (_, _) => { _paths.Clear(); RefreshFileList(); };
         _files.SelectedIndexChanged += (_, _) => _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
-        _toolTips.SetToolTip(_imagesButton, "Add one or more JPEG photos.");
-        _toolTips.SetToolTip(_folderButton, "Add JPEG photos from a folder and its subfolders.");
-        _toolTips.SetToolTip(_removeSelectedButton, "Remove selected photos from this batch.");
-        _toolTips.SetToolTip(_clearListButton, "Remove all photos from this batch.");
+        _toolTips.SetToolTip(_imagesButton, "Add one or more photos or videos.");
+        _toolTips.SetToolTip(_folderButton, "Add photos or videos from a folder and its subfolders.");
+        _toolTips.SetToolTip(_removeSelectedButton, "Remove selected items from this batch.");
+        _toolTips.SetToolTip(_clearListButton, "Remove all items from this batch.");
         return buttons;
     }
 
@@ -263,7 +263,7 @@ internal sealed partial class MainForm
         _openOutput.Margin = new Padding(0, 0, UiTheme.Scale(this, UiTheme.Space12), 0);
         _openOutput.Click += (_, _) => OpenOutputFolder();
         _toolTips.SetToolTip(_openOutput, "Open the latest completed batch folder.");
-        _progressCaption.Text = "Add JPEG files to begin.";
+        _progressCaption.Text = "Add photos or videos to begin.";
         _progressCaption.Anchor = AnchorStyles.Left;
         _progressCaption.Margin = new Padding(UiTheme.Scale(this, UiTheme.Space8), 0, 0, 0);
         _progress.Margin = Padding.Empty;
@@ -346,8 +346,9 @@ internal sealed partial class MainForm
             Padding = new Padding(UiTheme.Scale(this, 8), 0, UiTheme.Scale(this, 8), 0)
         };
         _results.Columns.Clear();
-        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "file", HeaderText = "File", FillWeight = 30 });
+        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "file", HeaderText = "File", FillWeight = 26 });
         _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "status", HeaderText = "Result", FillWeight = 17 });
+        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "type", HeaderText = "Type", FillWeight = 10 });
         _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "metadata", HeaderText = "Metadata found", FillWeight = 24 });
         _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "claims", HeaderText = "Readable C2PA claims", FillWeight = 29, SortMode = DataGridViewColumnSortMode.NotSortable });
         _results.CellPainting -= PaintStatusPill;
@@ -383,7 +384,9 @@ internal sealed partial class MainForm
         var (background, foreground) = text switch
         {
             "Cleaned" => (UiTheme.CleanedBackground, UiTheme.CleanedText),
+            "Inspected" => (UiTheme.CleanedBackground, UiTheme.CleanedText),
             "Nothing found" => (UiTheme.NothingBackground, UiTheme.WarningText),
+            "Not supported yet" => (UiTheme.RowAlternate, UiTheme.Secondary),
             _ => (UiTheme.FailedBackground, UiTheme.FailedText)
         };
         var textSize = TextRenderer.MeasureText(text, UiTheme.GetFont(UiTheme.PillFont), Size.Empty, TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
@@ -405,12 +408,12 @@ internal sealed partial class MainForm
     {
         using var dialog = new FolderBrowserDialog
         {
-            Description = "Choose a folder containing JPEG images",
+            Description = "Choose a folder containing photos or videos",
             UseDescriptionForTitle = true,
             ShowNewFolderButton = false
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
-        try { AddPaths(Directory.EnumerateFiles(dialog.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsJpeg).ToArray()); }
+        try { AddPaths(Directory.EnumerateFiles(dialog.SelectedPath, "*.*", SearchOption.AllDirectories).Where(MediaInspector.IsSupported).ToArray()); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
         {
             MessageBox.Show(this, $"Windows could not read that folder.\n\n{ex.Message}", "Folder could not be opened", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -425,13 +428,13 @@ internal sealed partial class MainForm
         {
             if (Directory.Exists(path))
             {
-                try { validFiles.AddRange(Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories).Where(IsJpeg)); }
+                try { validFiles.AddRange(Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories).Where(MediaInspector.IsSupported)); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or System.Security.SecurityException)
                 {
                     MessageBox.Show(this, $"Windows could not read that folder.\n\n{ex.Message}", "Folder could not be opened", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
-            else if (IsJpeg(path)) validFiles.Add(path);
+            else if (MediaInspector.IsSupported(path)) validFiles.Add(path);
         }
         AddPaths(validFiles);
     }
@@ -450,8 +453,8 @@ internal sealed partial class MainForm
         _files.Font = UiTheme.GetFont(UiTheme.SecondaryFont);
         _files.IntegralHeight = false;
         _files.SelectionMode = SelectionMode.MultiExtended;
-        _files.AccessibleName = "Selected JPEG images";
-        _files.AccessibleDescription = "Select one or more photos to remove them from the batch.";
+        _files.AccessibleName = "Selected photos or videos";
+        _files.AccessibleDescription = "Select one or more items to remove them from the batch.";
         _files.DrawMode = DrawMode.OwnerDrawFixed;
         _files.ItemHeight = UiTheme.Scale(this, 24);
         _files.DrawItem -= DrawFileItem;
@@ -465,8 +468,9 @@ internal sealed partial class MainForm
     private void UpdateDropZone()
     {
         var count = _paths.Count;
-        _dropZone.Title = count == 0 ? "Drag JPEG photos here, or use the buttons" : $"{count:N0} photos ready";
-        _dropZone.Description = count == 0 ? "JPEG/JPG only" : "Drop more JPEG photos here, or use the buttons";
+        var label = count == 0 ? "Drag photos or videos here, or use the buttons" : $"{count:N0} items ready";
+        _dropZone.Title = label;
+        _dropZone.Description = count == 0 ? "JPEG, MP4, MOV" : "Drop more files, or use the buttons";
         _dropZone.AccessibleName = _dropZone.Title;
         _dropZone.Invalidate();
         _files.Visible = count > 0;
@@ -477,7 +481,7 @@ internal sealed partial class MainForm
             _fileListLayout.PerformLayout();
         }
         if (!_busy && _completedFolder == null)
-            _progressCaption.Text = count == 0 ? "Add JPEG files to begin." : "";
+            _progressCaption.Text = count == 0 ? "Add photos or videos to begin." : "";
         _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
         _clearListButton.Enabled = count > 0;
     }

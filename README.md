@@ -36,6 +36,6 @@ The source project is in `desktop/`, the setup program is in `installer/`, and `
 
 The app quietly checks GitHub Releases when it opens and also has a **Check for updates** link. It asks before downloading or installing an update. Downloads use HTTPS, and the app checks GitHub's published SHA-256 digest when one is available. Installation replaces the app files only; source images and saved reports are kept.
 
-To publish an update, push a version tag such as `v1.1.1`. The Windows build workflow creates the installer and attaches it to a GitHub release. The repository must be public for every installed copy to check releases without asking users to sign in. The workflow embeds the repository name in each build.
+To publish an update, push a version tag such as `v1.2.0`. The Windows build workflow creates the installer and attaches it to a GitHub release. The repository must be public for every installed copy to check releases without asking users to sign in. The workflow embeds the repository name in each build.
 
 The first update-enabled build is version 1.1.0. Copies already installed before this update feature was added must be updated by running the new setup once; later versions can be offered from inside the app.

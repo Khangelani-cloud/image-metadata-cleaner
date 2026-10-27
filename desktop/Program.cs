@@ -64,11 +64,12 @@ internal sealed partial class MainForm : Form
         Shown += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: true);
     }
 
-    private static bool IsJpeg(string path) => string.Equals(Path.GetExtension(path), ".jpg", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(path), ".jpeg", StringComparison.OrdinalIgnoreCase);
+    private static bool IsJpeg(string path) => MediaInspector.IsJpeg(path);
+    private static bool IsVideo(string path) => MediaInspector.IsVideo(path);
 
     private void AddPaths(IEnumerable<string> paths)
     {
-        foreach (var path in paths.Where(IsJpeg).Where(File.Exists))
+        foreach (var path in paths.Where(MediaInspector.IsSupported).Where(File.Exists))
             if (!_paths.Contains(path, StringComparer.OrdinalIgnoreCase)) _paths.Add(path);
         RefreshFileList();
     }
@@ -86,7 +87,37 @@ internal sealed partial class MainForm : Form
     private async Task ProcessBatchAsync()
     {
         if (_busy || _paths.Count == 0) return;
+        var selected = _paths.ToArray();
+        var hasPhotos = selected.Any(IsJpeg);
+        var hasVideos = selected.Any(IsVideo);
         var target = _output.Text.Trim();
+
+        if (!hasPhotos && hasVideos)
+        {
+            _progressCaption.Text = "Inspecting videos only; no cleaned copies are created.";
+            _process.Text = "Inspect videos";
+            _process.Enabled = false;
+            _busy = true;
+            _results.Rows.Clear();
+            var videoRecords = new List<ReportRow>();
+            for (var index = 0; index < selected.Length; index++)
+            {
+                var path = selected[index];
+                _progressCaption.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
+                var result = await MediaInspector.InspectAsync(path);
+                var videoRow = new ReportRow { File = path, MediaKind = result.MediaKind, Status = result.Status, Error = result.Error, Findings = result.Findings, Metadata = result.ImageMetadata, VideoMetadata = result.VideoMetadata };
+                videoRecords.Add(videoRow);
+                AddResultRow(videoRow);
+                _progress.Value = (int)Math.Round((index + 1d) / selected.Length * 100);
+                await Task.Yield();
+            }
+            _busy = false;
+            _process.Text = "Inspect and create cleaned copies";
+            _process.Enabled = true;
+            _progressCaption.Text = $"Finished · {selected.Length:N0} of {selected.Length:N0} inspected";
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(target)) { MessageBox.Show(this, "Choose a folder for the cleaned copies.", "Choose a save folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         try { Directory.CreateDirectory(target); }
         catch (Exception ex) { MessageBox.Show(this, $"That folder could not be used.\n\n{ex.Message}", "Cannot save there", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
@@ -100,7 +131,6 @@ internal sealed partial class MainForm : Form
         _results.Rows.Clear();
         SetCompletedFolder(null);
         _progress.Value = 0;
-        var selected = _paths.ToArray();
         _progressCaption.Text = $"Processing 0 of {selected.Length:N0} photos";
         var removeXmp = _allOption.SelectedState;
         var records = new List<ReportRow>();
@@ -112,21 +142,30 @@ internal sealed partial class MainForm : Form
             _progressCaption.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
             try
             {
+                if (IsVideo(path))
+                {
+                    var result = await MediaInspector.InspectAsync(path);
+                    var videoRow = new ReportRow { File = path, MediaKind = result.MediaKind, Status = result.Status, Error = result.Error, Findings = result.Findings, Metadata = result.ImageMetadata, VideoMetadata = result.VideoMetadata };
+                    records.Add(videoRow);
+                    AddResultRow(videoRow);
+                    continue;
+                }
+
                 var data = await File.ReadAllBytesAsync(path);
                 var info = JpegMetadata.Inspect(data);
                 var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
                 var fileBase = Path.GetFileNameWithoutExtension(path);
                 var outputName = MakeUniqueName(target, fileBase, index + 1);
                 await File.WriteAllBytesAsync(Path.Combine(target, outputName), cleaned);
-                var row = new ReportRow { File = path, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
-                records.Add(row); cleanedCount++;
-                AddResultRow(row);
+                var photoRow = new ReportRow { File = path, MediaKind = MediaKind.Image, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
+                records.Add(photoRow); cleanedCount++;
+                AddResultRow(photoRow);
             }
             catch (Exception ex)
             {
-                var row = new ReportRow { File = path, Status = "Skipped", Error = ex.Message };
-                records.Add(row); skippedCount++;
-                AddResultRow(row);
+                var errorRow = new ReportRow { File = path, MediaKind = IsVideo(path) ? MediaKind.Video : MediaKind.Image, Status = IsVideo(path) ? "Failed" : "Skipped", Error = ex.Message };
+                records.Add(errorRow); skippedCount++;
+                AddResultRow(errorRow);
             }
             _progress.Value = (int)Math.Round((index + 1d) / selected.Length * 100);
             _progressCaption.Text = $"Processing {index + 1:N0} of {selected.Length:N0} photos";
@@ -137,30 +176,41 @@ internal sealed partial class MainForm : Form
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.json"), JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true }));
             var csv = BuildCsv(records);
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.csv"), "\uFEFF" + csv, Encoding.UTF8);
-            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nThe app copies the compressed JPEG scan without recompression and keeps EXIF, IPTC, ICC, and JFIF data.\r\n");
+            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nVideo files were inspected only in this phase. Cleaning video files is not available yet.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nThe app copies the compressed JPEG scan without recompression and keeps EXIF, IPTC, ICC, and JFIF data.\r\n");
         }
         catch (Exception ex) { MessageBox.Show(this, $"The images were processed, but the reports could not be saved.\n\n{ex.Message}", "Report save issue", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         _busy = false;
         _process.Enabled = _paths.Count > 0;
         SetCompletedFolder(target);
         _progressCaption.Text = $"Finished · {selected.Length:N0} of {selected.Length:N0} processed";
-        MessageBox.Show(this, $"Finished processing {selected.Length:N0} image(s).\n\nCleaned copies: {cleanedCount:N0}\nSkipped: {skippedCount:N0}\n\nThe originals were not changed.\n\nSave folder:\n{target}", "Batch complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        MessageBox.Show(this, $"Finished processing {selected.Length:N0} item(s).\n\nCleaned copies: {cleanedCount:N0}\nSkipped: {skippedCount:N0}\n\nThe originals were not changed.\n\nSave folder:\n{target}", "Batch complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void AddResultRow(ReportRow row)
     {
         var meta = row.Metadata;
-        var found = new List<string>();
-        if (meta?.Exif.Present == true) found.Add("EXIF");
-        if (meta?.Iptc.Present == true) found.Add("IPTC");
-        if (meta?.Xmp.Present == true) found.Add("XMP");
-        if (meta?.C2pa.Present == true) found.Add("C2PA");
-        var claims = meta?.C2pa.Claims.Count > 0 ? string.Join(", ", meta.C2pa.Claims) : "—";
-        var displayStatus = row.Error != null ? "Failed" : row.Removed.Count == 0 ? "Nothing found" : "Cleaned";
-        var index = _results.Rows.Add(Path.GetFileName(row.File), displayStatus, found.Count == 0 ? "No target metadata" : string.Join(", ", found), claims);
+        var found = row.Findings is { Count: > 0 } ? row.Findings.ToList() : new List<string>();
+        if (row.MediaKind == MediaKind.Image && meta != null)
+        {
+            if (meta.Exif.Present) found.Add("EXIF");
+            if (meta.Iptc.Present) found.Add("IPTC");
+            if (meta.Xmp.Present) found.Add("XMP");
+            if (meta.C2pa.Present) found.Add("C2PA");
+        }
+        found = found.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        var claims = row.MediaKind == MediaKind.Image && meta?.C2pa.Claims.Count > 0 ? string.Join(", ", meta.C2pa.Claims) : row.VideoMetadata?.C2PaClaims.Count > 0 ? string.Join(", ", row.VideoMetadata.C2PaClaims) : "—";
+        var displayStatus = row.Status;
+        if (string.IsNullOrWhiteSpace(displayStatus)) displayStatus = row.Error != null ? "Failed" : row.Removed.Count == 0 ? "Nothing found" : "Cleaned";
+        var typeText = row.MediaKind == MediaKind.Video ? "Video" : "Photo";
+        var metadataText = row.Error is not null
+            ? "Failed: " + (row.Error.Length > 280 ? row.Error[..280] + "…" : row.Error)
+            : found.Count == 0 ? "No target metadata" : string.Join(", ", found);
+        var index = _results.Rows.Add(Path.GetFileName(row.File), displayStatus, typeText, metadataText, claims);
         _results.Rows[index].Cells[0].ToolTipText = row.File;
-        _results.Rows[index].Cells[2].ToolTipText = row.Error ?? (found.Count == 0 ? "No target metadata found." : string.Join(", ", found));
-        _results.Rows[index].Cells[3].ToolTipText = claims;
+        _results.Rows[index].Cells[1].ToolTipText = row.Error ?? displayStatus;
+        _results.Rows[index].Cells[3].ToolTipText = row.Error ?? (found.Count == 0 ? "No target metadata found." : string.Join(", ", found));
+        _results.Rows[index].Cells[4].ToolTipText = claims;
         _results.Invalidate();
     }
 
@@ -178,11 +228,11 @@ internal sealed partial class MainForm : Form
     private static string BuildCsv(IEnumerable<ReportRow> rows)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("File,Status,Output,Mode,Removed,EXIF,IPTC,XMP,C2PA,ICC profile,JFIF,C2PA claim hints,Error");
+        sb.AppendLine("File,MediaKind,Status,Output,Mode,Removed,EXIF,IPTC,XMP,C2PA,ICC profile,JFIF,C2PA claim hints,Error");
         foreach (var r in rows)
         {
             var m = r.Metadata;
-            var values = new[] { r.File, r.Status, r.Output ?? "", r.Mode ?? "", string.Join("; ", r.Removed), Bool(m?.Exif.Present), Bool(m?.Iptc.Present), Bool(m?.Xmp.Present), Bool(m?.C2pa.Present), Bool(m?.IccProfile), Bool(m?.Jfif), string.Join("; ", m?.C2pa.Claims ?? new()), r.Error ?? "" };
+            var values = new[] { r.File, r.MediaKind.ToString(), r.Status, r.Output ?? "", r.Mode ?? "", string.Join("; ", r.Removed), Bool(m?.Exif.Present), Bool(m?.Iptc.Present), Bool(m?.Xmp.Present), Bool(m?.C2pa.Present), Bool(m?.IccProfile), Bool(m?.Jfif), string.Join("; ", m?.C2pa.Claims ?? new()), r.Error ?? "" };
             sb.AppendLine(string.Join(",", values.Select(CsvEscape)));
         }
         return sb.ToString();
@@ -195,11 +245,14 @@ internal sealed partial class MainForm : Form
 internal sealed class ReportRow
 {
     public string File { get; set; } = "";
+    public MediaKind MediaKind { get; set; } = MediaKind.Image;
     public string Status { get; set; } = "";
     public string? Output { get; set; }
     public string? Mode { get; set; }
     public List<string> Removed { get; set; } = new();
     public MetadataInfo? Metadata { get; set; }
+    public VideoMetadataInfo? VideoMetadata { get; set; }
+    public List<string> Findings { get; set; } = new();
     public long BytesIn { get; set; }
     public long BytesOut { get; set; }
     public string? Error { get; set; }
