@@ -18,16 +18,10 @@ internal static class Program
     }
 }
 
-internal sealed class MainForm : Form
+internal sealed partial class MainForm : Form
 {
-    private readonly ListBox _files = new() { Dock = DockStyle.Fill, SelectionMode = SelectionMode.MultiExtended, AllowDrop = true };
-    private readonly DataGridView _results = new() { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, BackgroundColor = Color.White };
-    private readonly TextBox _output = new() { ReadOnly = true, Dock = DockStyle.Fill };
-    private readonly RadioButton _c2paOnly = new() { Text = "Remove C2PA credentials only — keep XMP and ordinary photo metadata", AutoSize = true, Checked = true };
-    private readonly RadioButton _c2paAndXmp = new() { Text = "Remove C2PA and all XMP — may also remove descriptions, dates, copyright and edit history", AutoSize = true };
-    private readonly Button _process = new() { Text = "Inspect and create cleaned copies", AutoSize = true, Padding = new Padding(10, 7, 10, 7), BackColor = Color.FromArgb(28, 106, 78), ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Enabled = false };
-    private readonly ProgressBar _progress = new() { Dock = DockStyle.Fill, Height = 18, Minimum = 0, Maximum = 100 };
-    private readonly Label _status = new() { Text = "Add JPEG files to begin.", AutoSize = true, ForeColor = Color.DimGray };
+    private readonly ListBox _files = new() { Dock = DockStyle.Fill, SelectionMode = SelectionMode.MultiExtended, AccessibleName = "Selected JPEG images" };
+    private readonly BufferedDataGridView _results = new() { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false, BackgroundColor = UiTheme.Surface, AccessibleName = "Batch results" };
     private readonly List<string> _paths = new();
     private bool _busy;
 
@@ -35,114 +29,39 @@ internal sealed class MainForm : Form
     {
         Text = "Image Metadata Cleaner";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(900, 650);
-        Size = new Size(1120, 820);
-        BackColor = Color.FromArgb(247, 249, 247);
-        Font = new Font("Segoe UI", 10F);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        MinimumSize = new Size(900, 1100);
+        Size = new Size(1180, 1100);
+        BackColor = UiTheme.Window;
+        ForeColor = UiTheme.Text;
+        Font = UiTheme.GetFont(UiTheme.BodyFont);
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        SuspendLayout();
 
-        var outer = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(24), ColumnCount = 1, RowCount = 5 };
+        var outer = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, Padding = new Padding(UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16), UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16)), ColumnCount = 1, RowCount = 5 };
+        outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        outer.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        outer.RowStyles.Add(new RowStyle(SizeType.Percent, 66));
+        outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(outer);
 
-        var heading = new Label { Text = "Image Metadata Cleaner\nInspect photos and create separate cleaned copies. Your originals are never changed.", AutoSize = true, Font = new Font("Segoe UI", 19F, FontStyle.Bold), ForeColor = Color.FromArgb(30, 45, 40), Padding = new Padding(0, 0, 0, 16) };
-        outer.Controls.Add(heading, 0, 0);
-        outer.Controls.Add(BuildInputPanel(), 0, 1);
-        outer.Controls.Add(BuildOptionsPanel(), 0, 2);
-        outer.Controls.Add(BuildResultsPanel(), 0, 3);
+        outer.Controls.Add(BuildHeader(), 0, 0);
+        outer.Controls.Add(BuildImagesCard(), 0, 1);
+        outer.Controls.Add(BuildOptionsCard(), 0, 2);
+        outer.Controls.Add(BuildReportCard(), 0, 3);
         outer.Controls.Add(BuildFooter(), 0, 4);
+        ResumeLayout(true);
 
-        _files.SelectedIndexChanged += (_, _) => _process.Enabled = _paths.Count > 0 && !_busy;
-        _files.DragEnter += (_, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
-        _files.DragDrop += (_, e) => { if (e.Data?.GetData(DataFormats.FileDrop) is string[] paths) AddPaths(paths); };
+        _files.SelectedIndexChanged += (_, _) =>
+        {
+            _process.Enabled = _paths.Count > 0 && !_busy;
+            _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
+        };
         _process.Click += async (_, _) => await ProcessBatchAsync();
         Shown += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: true);
-    }
-
-    private Control BuildInputPanel()
-    {
-        var group = new GroupBox { Text = "1. Choose JPEG images", Dock = DockStyle.Fill, Padding = new Padding(12) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160));
-        group.Controls.Add(layout);
-        layout.Controls.Add(_files, 0, 0);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        var add = new Button { Text = "Add images…", Width = 140, Height = 38 };
-        add.Click += (_, _) => { using var dlg = new OpenFileDialog { Title = "Choose JPEG images", Filter = "JPEG images (*.jpg;*.jpeg)|*.jpg;*.jpeg", Multiselect = true, CheckFileExists = true }; if (dlg.ShowDialog(this) == DialogResult.OK) AddPaths(dlg.FileNames); };
-        var folder = new Button { Text = "Add a folder…", Width = 140, Height = 38 };
-        folder.Click += (_, _) =>
-        {
-            using var dlg = new FolderBrowserDialog { Description = "Choose a folder containing JPEG images", UseDescriptionForTitle = true, ShowNewFolderButton = false };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { AddPaths(Directory.EnumerateFiles(dlg.SelectedPath, "*.*", SearchOption.AllDirectories).Where(IsJpeg).ToArray()); }
-            catch (Exception ex) { MessageBox.Show(this, $"Windows could not read that folder.\n\n{ex.Message}", "Folder could not be opened", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-        };
-        var remove = new Button { Text = "Remove selected", Width = 140, Height = 38 };
-        remove.Click += (_, _) => { var selected = _files.SelectedItems.Cast<string>().ToHashSet(StringComparer.OrdinalIgnoreCase); _paths.RemoveAll(selected.Contains); RefreshFileList(); };
-        var clear = new Button { Text = "Clear list", Width = 140, Height = 38 };
-        clear.Click += (_, _) => { _paths.Clear(); RefreshFileList(); };
-        buttons.Controls.AddRange(new Control[] { add, folder, remove, clear });
-        layout.Controls.Add(buttons, 1, 0);
-        return group;
-    }
-
-    private Control BuildOptionsPanel()
-    {
-        var group = new GroupBox { Text = "2. Choose what to remove", Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(12) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, AutoSize = true };
-        layout.Controls.Add(_c2paOnly, 0, 0);
-        layout.Controls.Add(_c2paAndXmp, 0, 1);
-        var explain = new Label { Text = "C2PA claims are reported as embedded data; this app does not verify signatures or trust. Removing all XMP can erase regular photo details too.", AutoSize = true, ForeColor = Color.FromArgb(92, 77, 36), BackColor = Color.FromArgb(255, 247, 222), Padding = new Padding(8), Margin = new Padding(3, 8, 3, 3) };
-        layout.Controls.Add(explain, 0, 2);
-        group.Controls.Add(layout);
-        return group;
-    }
-
-    private Control BuildResultsPanel()
-    {
-        var group = new GroupBox { Text = "3. Save copies and view the report", Dock = DockStyle.Fill, Padding = new Padding(12) };
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var pathRow = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 3, AutoSize = true };
-        pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        pathRow.Controls.Add(new Label { Text = "Save batch under:", AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(0, 5, 6, 0) }, 0, 0);
-        var defaultFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Cleaned Images");
-        _output.Text = defaultFolder;
-        pathRow.Controls.Add(_output, 1, 0);
-        var browse = new Button { Text = "Choose…", AutoSize = true };
-        browse.Click += (_, _) => { using var dlg = new FolderBrowserDialog { Description = "Choose where cleaned copies and reports will be saved", UseDescriptionForTitle = true, SelectedPath = _output.Text, ShowNewFolderButton = true }; if (dlg.ShowDialog(this) == DialogResult.OK) _output.Text = dlg.SelectedPath; };
-        pathRow.Controls.Add(browse, 2, 0);
-        layout.Controls.Add(pathRow, 0, 0);
-        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "file", HeaderText = "File", FillWeight = 28 });
-        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "status", HeaderText = "Result", FillWeight = 12 });
-        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "metadata", HeaderText = "Metadata found", FillWeight = 25 });
-        _results.Columns.Add(new DataGridViewTextBoxColumn { Name = "claims", HeaderText = "Readable C2PA claims", FillWeight = 35 });
-        layout.Controls.Add(_results, 0, 1);
-        var footer = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false, Padding = new Padding(0, 8, 0, 0) };
-        footer.Controls.Add(_process);
-        footer.Controls.Add(_progress);
-        footer.Controls.Add(_status);
-        _progress.Width = 160;
-        _status.Padding = new Padding(8, 8, 0, 0);
-        layout.Controls.Add(footer, 0, 2);
-        group.Controls.Add(layout);
-        return group;
-    }
-
-    private Control BuildFooter()
-    {
-        var footer = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Padding = new Padding(0, 10, 0, 0) };
-        footer.Controls.Add(new Label { Text = "JPEG/JPG only · each batch gets its own dated folder · original files are left untouched", AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 4, 0, 0) });
-        var updates = new LinkLabel { Text = "Check for updates", AutoSize = true, LinkColor = Color.FromArgb(28, 106, 78), Padding = new Padding(12, 4, 0, 0) };
-        updates.Click += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: false);
-        footer.Controls.Add(updates);
-        return footer;
     }
 
     private static bool IsJpeg(string path) => string.Equals(Path.GetExtension(path), ".jpg", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(path), ".jpeg", StringComparison.OrdinalIgnoreCase);
@@ -159,7 +78,9 @@ internal sealed class MainForm : Form
         _files.Items.Clear();
         foreach (var path in _paths) _files.Items.Add(path);
         _process.Enabled = _paths.Count > 0 && !_busy;
-        _status.Text = _paths.Count == 0 ? "Add JPEG files to begin." : $"{_paths.Count:N0} image(s) ready.";
+        _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
+        _clearListButton.Enabled = _paths.Count > 0;
+        UpdateDropZone();
     }
 
     private async Task ProcessBatchAsync()
@@ -177,17 +98,18 @@ internal sealed class MainForm : Form
         _busy = true;
         _process.Enabled = false;
         _results.Rows.Clear();
+        SetCompletedFolder(null);
         _progress.Value = 0;
         var selected = _paths.ToArray();
-        var removeXmp = _c2paAndXmp.Checked;
+        _progressCaption.Text = $"Processing 0 of {selected.Length:N0} photos";
+        var removeXmp = _allOption.SelectedState;
         var records = new List<ReportRow>();
         var cleanedCount = 0;
         var skippedCount = 0;
         for (var index = 0; index < selected.Length; index++)
         {
             var path = selected[index];
-            _status.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
-            _status.Refresh();
+            _progressCaption.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
             try
             {
                 var data = await File.ReadAllBytesAsync(path);
@@ -207,6 +129,7 @@ internal sealed class MainForm : Form
                 AddResultRow(row);
             }
             _progress.Value = (int)Math.Round((index + 1d) / selected.Length * 100);
+            _progressCaption.Text = $"Processing {index + 1:N0} of {selected.Length:N0} photos";
             await Task.Yield();
         }
         try
@@ -217,9 +140,10 @@ internal sealed class MainForm : Form
             await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nThe app copies the compressed JPEG scan without recompression and keeps EXIF, IPTC, ICC, and JFIF data.\r\n");
         }
         catch (Exception ex) { MessageBox.Show(this, $"The images were processed, but the reports could not be saved.\n\n{ex.Message}", "Report save issue", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-        _status.Text = $"Finished: {cleanedCount:N0} cleaned, {skippedCount:N0} skipped. Reports are in the chosen folder.";
         _busy = false;
         _process.Enabled = _paths.Count > 0;
+        SetCompletedFolder(target);
+        _progressCaption.Text = $"Finished · {selected.Length:N0} of {selected.Length:N0} processed";
         MessageBox.Show(this, $"Finished processing {selected.Length:N0} image(s).\n\nCleaned copies: {cleanedCount:N0}\nSkipped: {skippedCount:N0}\n\nThe originals were not changed.\n\nSave folder:\n{target}", "Batch complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
@@ -232,7 +156,12 @@ internal sealed class MainForm : Form
         if (meta?.Xmp.Present == true) found.Add("XMP");
         if (meta?.C2pa.Present == true) found.Add("C2PA");
         var claims = meta?.C2pa.Claims.Count > 0 ? string.Join(", ", meta.C2pa.Claims) : "—";
-        _results.Rows.Add(Path.GetFileName(row.File), row.Status, found.Count == 0 ? "No target metadata" : string.Join(", ", found), claims);
+        var displayStatus = row.Error != null ? "Failed" : row.Removed.Count == 0 ? "Nothing found" : "Cleaned";
+        var index = _results.Rows.Add(Path.GetFileName(row.File), displayStatus, found.Count == 0 ? "No target metadata" : string.Join(", ", found), claims);
+        _results.Rows[index].Cells[0].ToolTipText = row.File;
+        _results.Rows[index].Cells[2].ToolTipText = row.Error ?? (found.Count == 0 ? "No target metadata found." : string.Join(", ", found));
+        _results.Rows[index].Cells[3].ToolTipText = claims;
+        _results.Invalidate();
     }
 
     private static string MakeUniqueName(string folder, string stem, int ordinal)

@@ -3,13 +3,14 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Image Metadata Cleaner</AssemblyName>
     <RootNamespace>ImageMetadataCleaner</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version Condition="'$(Version)' == ''">1.1.0</Version>
+    <Version Condition="'$(Version)' == ''">1.1.1</Version>
     <UpdateRepository Condition="'$(UpdateRepository)' == ''"></UpdateRepository>
   </PropertyGroup>
   <ItemGroup>
