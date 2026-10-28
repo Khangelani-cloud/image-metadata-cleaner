@@ -12,15 +12,17 @@ If Windows warns that the app is from an unknown publisher, that is because this
 
 ## Use the app
 
-1. Add JPEG images or choose a folder. Folder selection includes subfolders.
+1. Add JPEG images or MP4, M4V, and MOV videos, or choose a folder. Folder selection includes subfolders.
 2. Choose whether to remove C2PA alone or C2PA plus all XMP.
 3. Choose where to save the batch and select **Inspect and create cleaned copies**.
 
-The app makes a new dated folder for each batch. Original images are never modified. It saves a CSV report, a JSON report, and a short explanation beside the cleaned copies. Non-JPEG files and damaged JPEGs are reported as skipped.
+The app makes a new dated folder for each batch. Original files are never modified. It saves a CSV report, a JSON report, and a short explanation beside the cleaned copies. Unsupported video formats and damaged files are reported as skipped.
 
 **Remove C2PA only** keeps XMP, EXIF, IPTC, ICC profiles, JFIF and other JPEG metadata. Provenance details that may also appear in XMP remain.
 
 **Remove C2PA and all XMP** removes the whole XMP packet, including possible ordinary descriptions, dates, copyright details, software information and edit history. EXIF, IPTC, ICC and JFIF remain. Neither option recompresses the JPEG image scan.
+
+For MP4, M4V, and MOV videos, the app clears supported QuickTime/ISO-BMFF metadata boxes and embedded creation/modification timestamps. Encoded audio/video payloads are preserved without recompression. Chapters or other data stored inside user-metadata boxes may also be removed. Other video formats are not cleaned.
 
 C2PA values in the report are readable embedded claims. The app does not validate signatures, certificates or trust. ExifTool and Adobe's C2PA inspector are not bundled.
 

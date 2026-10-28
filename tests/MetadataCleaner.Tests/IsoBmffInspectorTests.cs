@@ -157,6 +157,53 @@ public class IsoBmffInspectorTests
         }
     }
 
+    [Fact]
+    public void Clean_RemovesVideoMetadataAndPreservesMediaPayload()
+    {
+        var source = BuildFixtureWithCleanableMetadata();
+        using var sourceStream = new MemoryStream(source);
+        var before = IsoBmffInspector.Inspect(sourceStream, CancellationToken.None);
+        Assert.Contains("XMP", before.Findings);
+        Assert.Contains("GPS", before.Findings);
+        Assert.Contains("Date", before.Findings);
+
+        using var input = new MemoryStream(source);
+        using var output = new MemoryStream();
+
+        var removed = IsoBmffInspector.Clean(input, output);
+        var cleaned = output.ToArray();
+
+        Assert.Contains("XMP", removed);
+        Assert.Contains("Location", removed);
+        Assert.Contains("Creation/modification timestamps", removed);
+        Assert.DoesNotContain("private video description", Encoding.UTF8.GetString(cleaned));
+        var movieHeaderIndex = cleaned.AsSpan().IndexOf("mvhd"u8);
+        Assert.True(movieHeaderIndex >= 0);
+        Assert.All(cleaned.AsSpan(movieHeaderIndex + 8, 8).ToArray(), value => Assert.Equal(0, value));
+        Assert.True(cleaned.AsSpan().EndsWith(BuildBox("mdat", new byte[] { 0x31, 0x32, 0x33, 0x34 })));
+        using var cleanedStream = new MemoryStream(cleaned);
+        var after = IsoBmffInspector.Inspect(cleanedStream, CancellationToken.None);
+        Assert.DoesNotContain("XMP", after.Findings);
+        Assert.DoesNotContain("GPS", after.Findings);
+        Assert.DoesNotContain("Date", after.Findings);
+    }
+
+    private static byte[] BuildFixtureWithCleanableMetadata()
+    {
+        using var stream = new MemoryStream();
+        var movieHeader = new byte[20];
+        movieHeader[7] = 1;
+        movieHeader[11] = 2;
+        var location = BitConverter.GetBytes(33.9f).Concat(BitConverter.GetBytes(-118.4f)).Concat(BitConverter.GetBytes(10.0f)).ToArray();
+        var xmpUuid = Guid.Parse("be7acfc0-4b4f-11e7-8f0e-0002a5d5c51b");
+        var xmpBox = BuildBox("uuid", BuildUuidBox(xmpUuid, Encoding.UTF8.GetBytes("private video description")));
+        var metadata = BuildBox("meta", new byte[4].Concat(xmpBox).ToArray());
+        var userData = BuildBox("udta", BuildBox("©xyz", location));
+        WriteBox(stream, "moov", BuildBox("mvhd", movieHeader).Concat(metadata).Concat(userData).ToArray());
+        WriteBox(stream, "mdat", new byte[] { 0x31, 0x32, 0x33, 0x34 });
+        return stream.ToArray();
+    }
+
     private static byte[] BuildFixtureMoovBeforeMdat()
     {
         var stream = new MemoryStream();
@@ -282,7 +329,9 @@ public class IsoBmffInspectorTests
     private static byte[] BuildUuidBox(Guid uuid, byte[] payload)
     {
         using var ms = new MemoryStream();
-        ms.Write(uuid.ToByteArray());
+        var id = new byte[16];
+        uuid.TryWriteBytes(id, bigEndian: true, out _);
+        ms.Write(id);
         ms.Write(payload);
         return ms.ToArray();
     }

@@ -57,7 +57,7 @@ internal sealed partial class MainForm
             BackColor = UiTheme.Window,
             Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space4), 0, 0)
         });
-        var pill = new PillLabel { Text = "Photo + video • inspection only", Anchor = AnchorStyles.Right, Margin = new Padding(UiTheme.Scale(this, UiTheme.Space12), 0, 0, 0) };
+        var pill = new PillLabel { Text = "Photo + video • clean copies", Anchor = AnchorStyles.Right, Margin = new Padding(UiTheme.Scale(this, UiTheme.Space12), 0, 0, 0) };
         header.Controls.Add(titleStack, 0, 0);
         header.Controls.Add(pill, 1, 0);
         return header;
@@ -165,7 +165,7 @@ internal sealed partial class MainForm
         layout.Controls.Add(options, 0, 1);
         var notice = new NoticeControl
         {
-            Message = "C2PA claims are reported as embedded data; this app does not verify signatures or trust. Removing all XMP can erase regular photo details too.",
+            Message = "Video copies clear supported metadata boxes and timestamps while preserving encoded media. C2PA signatures are not verified; removing all JPEG XMP can erase regular photo details too.",
             Dock = DockStyle.Top,
             Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space14), 0, 0)
         };
@@ -221,7 +221,7 @@ internal sealed partial class MainForm
             BackColor = UiTheme.Surface,
             Margin = new Padding(0, 0, UiTheme.Scale(this, UiTheme.Space12), 0)
         }, 0, 0);
-        _output.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Cleaned Images");
+        _output.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "Cleaned Media");
         _output.Dock = DockStyle.Fill;
         _output.Margin = new Padding(0, 0, UiTheme.Scale(this, UiTheme.Space8), 0);
         row.Controls.Add(_output, 1, 0);

@@ -171,7 +171,7 @@ internal static class IsoBmffInspector
 
             if (box.Type == "uuid" && box.Uuid is not null)
             {
-                var uuid = new Guid(box.Uuid);
+                var uuid = new Guid(box.Uuid, bigEndian: true);
                 if (uuid == XmpUuid)
                 {
                     video.XmpPresent = true;
@@ -288,6 +288,93 @@ internal static class IsoBmffInspector
         return result;
     }
 
+    public static List<string> Clean(Stream input, Stream output, CancellationToken cancellationToken = default)
+    {
+        if (ReferenceEquals(input, output)) throw new ArgumentException("Input and output streams must be different.");
+        if (!input.CanRead || !input.CanSeek) throw new ArgumentException("The input stream must be readable and seekable.", nameof(input));
+        if (!output.CanWrite || !output.CanSeek) throw new ArgumentException("The output stream must be writable and seekable.", nameof(output));
+
+        var boxes = new List<BoxInfo>();
+        WalkBoxes(input, 0, input.Length, 0, "file", boxes, cancellationToken);
+
+        input.Position = 0;
+        output.Position = 0;
+        output.SetLength(0);
+        input.CopyTo(output);
+        output.SetLength(input.Length);
+
+        var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var metadataRanges = new List<(long Start, long End)>();
+        var coveredUntil = -1L;
+        foreach (var box in boxes.Where(IsMetadataBox).OrderBy(box => box.Offset))
+        {
+            removed.Add(GetMetadataCategory(box));
+            if (box.Offset < coveredUntil) continue;
+            WriteFreeBox(output, box);
+            coveredUntil = box.End;
+            metadataRanges.Add((box.Offset, box.End));
+        }
+
+        var zero = new byte[8];
+        foreach (var box in boxes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (box.Type is not ("mvhd" or "tkhd" or "mdhd") || metadataRanges.Any(range => box.Offset < range.End && box.End > range.Start)) continue;
+            if (box.Payload.Length < 1) continue;
+
+            var version = box.Payload[0];
+            var fieldSize = version == 1 ? 8 : version == 0 ? 4 : 0;
+            if (fieldSize == 0 || box.Payload.Length < 4 + fieldSize * 2) continue;
+            output.Position = box.PayloadOffset + 4;
+            output.Write(zero, 0, fieldSize);
+            output.Write(zero, 0, fieldSize);
+            removed.Add("Creation/modification timestamps");
+        }
+
+        return removed.ToList();
+    }
+
+    private static bool IsMetadataBox(BoxInfo box)
+    {
+        if (box.Type is "meta" or "udta" or "XMP " or "©xyz" or "loci" or "keys" or "ilst"
+            or "©nam" or "©ART" or "©cmt" or "©cprt" or "©mak" or "©mod" or "©too" or "©swr") return true;
+        if (box.Type != "uuid" || box.Uuid is null) return false;
+        var uuid = new Guid(box.Uuid, bigEndian: true);
+        return uuid == XmpUuid || uuid == C2PaUuid;
+    }
+
+    private static string GetMetadataCategory(BoxInfo box)
+    {
+        if (box.Type == "uuid" && box.Uuid is not null)
+        {
+            var uuid = new Guid(box.Uuid, bigEndian: true);
+            if (uuid == XmpUuid) return "XMP";
+            if (uuid == C2PaUuid) return "C2PA";
+        }
+        if (box.Type is "XMP ") return "XMP";
+        if (box.Type is "©xyz" or "loci") return "Location";
+        return "QuickTime metadata";
+    }
+
+    private static void WriteFreeBox(Stream output, BoxInfo box)
+    {
+        output.Position = box.Offset + 4;
+        output.Write("free"u8);
+        output.Position = box.Offset + box.HeaderSize;
+        WriteZeros(output, (long)box.Size - (long)box.HeaderSize);
+    }
+
+    private static void WriteZeros(Stream output, long count)
+    {
+        var zeros = new byte[64 * 1024];
+        while (count > 0)
+        {
+            var length = (int)Math.Min(count, zeros.Length);
+            output.Write(zeros, 0, length);
+            count -= length;
+        }
+    }
+
     private static void WalkBoxes(Stream stream, long parentStart, long parentEnd, int depth, string containerPath, List<BoxInfo> boxes, CancellationToken cancellationToken)
     {
         if (depth > MaxDepth) throw DamagedBox(parentStart, containerPath, "box nesting is too deep");
@@ -343,7 +430,7 @@ internal static class IsoBmffInspector
                 payload = ReadPayload(stream, readLength, payloadStart, boxEnd);
             }
 
-            boxes.Add(new BoxInfo(type, boxStart, actualSize, boxEnd, uuid, payload));
+            boxes.Add(new BoxInfo(type, boxStart, actualSize, boxEnd, uuid, payload, payloadStart, (int)headerSize));
 
             if (ShouldRecurseInto(type))
             {
@@ -450,10 +537,32 @@ internal static class IsoBmffInspector
     private static string? ReadDate(byte[] payload, string boxType)
     {
         if (payload.Length < 4) return null;
-        var value = BitConverter.ToUInt32(payload, 0);
-        if (value == 0) return "not set";
-        var date = DateTimeOffset.FromUnixTimeSeconds(value).UtcDateTime;
-        return date.ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
+        var version = payload[0];
+        var fieldOffset = 4;
+        ulong seconds;
+        if (version == 0 && payload.Length >= fieldOffset + 4)
+        {
+            seconds = BinaryPrimitives.ReadUInt32BigEndian(payload.AsSpan(fieldOffset, 4));
+        }
+        else if (version == 1 && payload.Length >= fieldOffset + 8)
+        {
+            seconds = BinaryPrimitives.ReadUInt64BigEndian(payload.AsSpan(fieldOffset, 8));
+        }
+        else
+        {
+            return null;
+        }
+
+        if (seconds == 0) return null;
+        try
+        {
+            var date = new DateTime(1904, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(seconds);
+            return date.ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static string? ReadMetadataSummary(byte[] payload)
@@ -483,7 +592,7 @@ internal static class IsoBmffInspector
 
     private sealed class BoxInfo
     {
-        public BoxInfo(string type, long offset, ulong size, long end, byte[]? uuid, byte[] payload)
+        public BoxInfo(string type, long offset, ulong size, long end, byte[]? uuid, byte[] payload, long payloadOffset, int headerSize)
         {
             Type = type;
             Offset = offset;
@@ -491,6 +600,8 @@ internal static class IsoBmffInspector
             End = end;
             Uuid = uuid;
             Payload = payload;
+            PayloadOffset = payloadOffset;
+            HeaderSize = headerSize;
         }
 
         public string Type { get; }
@@ -499,5 +610,7 @@ internal static class IsoBmffInspector
         public long End { get; }
         public byte[]? Uuid { get; }
         public byte[] Payload { get; }
+        public long PayloadOffset { get; }
+        public int HeaderSize { get; }
     }
 }

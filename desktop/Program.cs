@@ -88,41 +88,12 @@ internal sealed partial class MainForm : Form
     {
         if (_busy || _paths.Count == 0) return;
         var selected = _paths.ToArray();
-        var hasPhotos = selected.Any(IsJpeg);
-        var hasVideos = selected.Any(IsVideo);
         var target = _output.Text.Trim();
-
-        if (!hasPhotos && hasVideos)
-        {
-            _progressCaption.Text = "Inspecting videos only; no cleaned copies are created.";
-            _process.Text = "Inspect videos";
-            _process.Enabled = false;
-            _busy = true;
-            _results.Rows.Clear();
-            var videoRecords = new List<ReportRow>();
-            for (var index = 0; index < selected.Length; index++)
-            {
-                var path = selected[index];
-                _progressCaption.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
-                var result = await MediaInspector.InspectAsync(path);
-                var videoRow = new ReportRow { File = path, MediaKind = result.MediaKind, Status = result.Status, Error = result.Error, Findings = result.Findings, Metadata = result.ImageMetadata, VideoMetadata = result.VideoMetadata };
-                videoRecords.Add(videoRow);
-                AddResultRow(videoRow);
-                _progress.Value = (int)Math.Round((index + 1d) / selected.Length * 100);
-                await Task.Yield();
-            }
-            _busy = false;
-            _process.Text = "Inspect and create cleaned copies";
-            _process.Enabled = true;
-            _progressCaption.Text = $"Finished · {selected.Length:N0} of {selected.Length:N0} inspected";
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(target)) { MessageBox.Show(this, "Choose a folder for the cleaned copies.", "Choose a save folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         try { Directory.CreateDirectory(target); }
         catch (Exception ex) { MessageBox.Show(this, $"That folder could not be used.\n\n{ex.Message}", "Cannot save there", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
-        target = Path.Combine(target, "Cleaned images " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
+        target = Path.Combine(target, "Cleaned media " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss"));
         try { Directory.CreateDirectory(target); }
         catch (Exception ex) { MessageBox.Show(this, $"A new batch folder could not be created.\n\n{ex.Message}", "Cannot save there", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
 
@@ -131,7 +102,7 @@ internal sealed partial class MainForm : Form
         _results.Rows.Clear();
         SetCompletedFolder(null);
         _progress.Value = 0;
-        _progressCaption.Text = $"Processing 0 of {selected.Length:N0} photos";
+        _progressCaption.Text = $"Processing 0 of {selected.Length:N0} files";
         var removeXmp = _allOption.SelectedState;
         var records = new List<ReportRow>();
         var cleanedCount = 0;
@@ -139,6 +110,8 @@ internal sealed partial class MainForm : Form
         for (var index = 0; index < selected.Length; index++)
         {
             var path = selected[index];
+            string? partialOutputPath = null;
+            var outputCreated = false;
             _progressCaption.Text = $"Inspecting {index + 1:N0} of {selected.Length:N0}: {Path.GetFileName(path)}";
             try
             {
@@ -146,29 +119,54 @@ internal sealed partial class MainForm : Form
                 {
                     var result = await MediaInspector.InspectAsync(path);
                     var videoRow = new ReportRow { File = path, MediaKind = result.MediaKind, Status = result.Status, Error = result.Error, Findings = result.Findings, Metadata = result.ImageMetadata, VideoMetadata = result.VideoMetadata };
+                    if (result.IsSupported)
+                    {
+                        var outputName = MakeUniqueName(target, Path.GetFileNameWithoutExtension(path), index + 1, Path.GetExtension(path));
+                        partialOutputPath = Path.Combine(target, outputName);
+                        var removed = await Task.Run(() =>
+                        {
+                            using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            using var output = new FileStream(partialOutputPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+                            outputCreated = true;
+                            return IsoBmffInspector.Clean(input, output);
+                        });
+                        videoRow.Status = "Cleaned";
+                        videoRow.Output = outputName;
+                        videoRow.Removed = removed;
+                        videoRow.BytesIn = new FileInfo(path).Length;
+                        videoRow.BytesOut = new FileInfo(partialOutputPath).Length;
+                        videoRow.Mode = "Metadata boxes cleared; media payload preserved";
+                        cleanedCount++;
+                    }
+                    else
+                    {
+                        skippedCount++;
+                    }
                     records.Add(videoRow);
                     AddResultRow(videoRow);
-                    continue;
                 }
-
-                var data = await File.ReadAllBytesAsync(path);
-                var info = JpegMetadata.Inspect(data);
-                var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
-                var fileBase = Path.GetFileNameWithoutExtension(path);
-                var outputName = MakeUniqueName(target, fileBase, index + 1);
-                await File.WriteAllBytesAsync(Path.Combine(target, outputName), cleaned);
-                var photoRow = new ReportRow { File = path, MediaKind = MediaKind.Image, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
-                records.Add(photoRow); cleanedCount++;
-                AddResultRow(photoRow);
+                else
+                {
+                    var data = await File.ReadAllBytesAsync(path);
+                    var info = JpegMetadata.Inspect(data);
+                    var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
+                    var fileBase = Path.GetFileNameWithoutExtension(path);
+                    var outputName = MakeUniqueName(target, fileBase, index + 1);
+                    await File.WriteAllBytesAsync(Path.Combine(target, outputName), cleaned);
+                    var photoRow = new ReportRow { File = path, MediaKind = MediaKind.Image, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
+                    records.Add(photoRow); cleanedCount++;
+                    AddResultRow(photoRow);
+                }
             }
             catch (Exception ex)
             {
+                if (outputCreated && partialOutputPath is not null && File.Exists(partialOutputPath)) File.Delete(partialOutputPath);
                 var errorRow = new ReportRow { File = path, MediaKind = IsVideo(path) ? MediaKind.Video : MediaKind.Image, Status = IsVideo(path) ? "Failed" : "Skipped", Error = ex.Message };
                 records.Add(errorRow); skippedCount++;
                 AddResultRow(errorRow);
             }
             _progress.Value = (int)Math.Round((index + 1d) / selected.Length * 100);
-            _progressCaption.Text = $"Processing {index + 1:N0} of {selected.Length:N0} photos";
+            _progressCaption.Text = $"Processing {index + 1:N0} of {selected.Length:N0} files";
             await Task.Yield();
         }
         try
@@ -176,7 +174,7 @@ internal sealed partial class MainForm : Form
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.json"), JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true }));
             var csv = BuildCsv(records);
             await File.WriteAllTextAsync(Path.Combine(target, "metadata-report.csv"), "\uFEFF" + csv, Encoding.UTF8);
-            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nVideo files were inspected only in this phase. Cleaning video files is not available yet.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nThe app copies the compressed JPEG scan without recompression and keeps EXIF, IPTC, ICC, and JFIF data.\r\n");
+            await File.WriteAllTextAsync(Path.Combine(target, "README - metadata report.txt"), "Metadata Cleaner batch\r\n\r\nOriginal files were not changed. Cleaned copies are saved in this folder.\r\nVideo copies are made for MP4, M4V, and MOV files by clearing supported QuickTime/ISO-BMFF metadata boxes and creation/modification timestamps. Encoded audio/video payloads are preserved without recompression. This can also remove chapters or other data stored inside user-metadata boxes.\r\nC2PA details in the report are embedded claims only. Signatures, certificates, and trust were not verified.\r\nThe ‘C2PA and all XMP’ option removes complete XMP packets from JPEG images. XMP can include ordinary descriptions, dates, copyright, software information, and edit history.\r\nJPEG copies preserve the compressed image scan without recompression and keep EXIF, IPTC, ICC, and JFIF data.\r\n");
         }
         catch (Exception ex) { MessageBox.Show(this, $"The images were processed, but the reports could not be saved.\n\n{ex.Message}", "Report save issue", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         _busy = false;
@@ -214,14 +212,14 @@ internal sealed partial class MainForm : Form
         _results.Invalidate();
     }
 
-    private static string MakeUniqueName(string folder, string stem, int ordinal)
+    private static string MakeUniqueName(string folder, string stem, int ordinal, string extension = ".jpg")
     {
         var safe = Regex.Replace(stem, @"[^\p{L}\p{Nd}._ -]", "_").Trim(' ', '.');
         if (safe.Length > 100) safe = safe[..100];
-        if (string.IsNullOrWhiteSpace(safe)) safe = "image";
-        var candidate = $"{ordinal:0000}_{safe}_cleaned.jpg";
+        if (string.IsNullOrWhiteSpace(safe)) safe = "media";
+        var candidate = $"{ordinal:0000}_{safe}_cleaned{extension}";
         var suffix = 1;
-        while (File.Exists(Path.Combine(folder, candidate))) candidate = $"{ordinal:0000}_{safe}_cleaned_{suffix++}.jpg";
+        while (File.Exists(Path.Combine(folder, candidate))) candidate = $"{ordinal:0000}_{safe}_cleaned_{suffix++}{extension}";
         return candidate;
     }
 
