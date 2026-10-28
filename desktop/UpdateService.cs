@@ -12,6 +12,13 @@ internal static class UpdateService
     private const string AssetName = "Image Metadata Cleaner Setup.exe";
     private static readonly HttpClient Client = CreateClient();
 
+    internal static bool IsInstallerAssetName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        static string Normalize(string value) => string.Concat(value.Where(char.IsLetterOrDigit));
+        return string.Equals(Normalize(name), Normalize(AssetName), StringComparison.OrdinalIgnoreCase);
+    }
+
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
@@ -46,7 +53,7 @@ internal static class UpdateService
             }
 
             var asset = release.GetProperty("assets").EnumerateArray()
-                .FirstOrDefault(x => string.Equals(x.GetProperty("name").GetString(), AssetName, StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(x => IsInstallerAssetName(x.GetProperty("name").GetString()));
             if (asset.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("The update package is not available yet.");
             var downloadUrl = asset.GetProperty("browser_download_url").GetString() ?? "";
             if (!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com")
