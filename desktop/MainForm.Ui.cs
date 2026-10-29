@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using Microsoft.Win32;
 using System.Windows.Forms;
 
 namespace ImageMetadataCleaner;
@@ -17,6 +18,7 @@ internal sealed partial class MainForm
     private readonly RoundedActionButton _clearListButton = new() { Text = "Clear list", AccessibleName = "Clear image list", Style = ActionButtonStyle.Quiet, Enabled = false };
     private readonly RoundedActionButton _process = new() { Text = "Inspect and create cleaned copies", AccessibleName = "Inspect and create cleaned copies", Icon = IconKind.Check, Enabled = false, Style = ActionButtonStyle.Primary };
     private readonly RoundedActionButton _openOutput = new() { Text = "Open output folder", AccessibleName = "Open output folder", Icon = IconKind.Folder, Style = ActionButtonStyle.Outlined, Visible = false };
+    private readonly RoundedActionButton _themeToggle = new() { Text = UiTheme.IsDark ? "Dark" : "Light", AccessibleName = "Toggle light and dark mode", Style = ActionButtonStyle.Outlined };
     private readonly ThinProgressBar _progress = new() { Dock = DockStyle.Fill };
     private readonly Label _progressCaption = new() { AutoSize = true, ForeColor = UiTheme.Secondary };
     private readonly RoundedTextBox _output = new() { Dock = DockStyle.Fill };
@@ -27,6 +29,7 @@ internal sealed partial class MainForm
     {
         if (disposing)
         {
+            SystemEvents.UserPreferenceChanged -= HandleUserPreferenceChanged;
             _toolTips.Dispose();
         }
         base.Dispose(disposing);
@@ -35,8 +38,9 @@ internal sealed partial class MainForm
 
     private Control BuildHeader()
     {
-        var header = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, UiTheme.Scale(this, UiTheme.CardGap)) };
+        var header = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, ColumnCount = 3, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, UiTheme.Scale(this, UiTheme.CardGap)) };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var titleStack = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = Padding.Empty };
         titleStack.Controls.Add(new Label
@@ -58,8 +62,13 @@ internal sealed partial class MainForm
             Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space4), 0, 0)
         });
         var pill = new PillLabel { Text = "Photo + video • clean copies", Anchor = AnchorStyles.Right, Margin = new Padding(UiTheme.Scale(this, UiTheme.Space12), 0, 0, 0) };
+        _themeToggle.Size = new Size(UiTheme.Scale(this, 72), UiTheme.Scale(this, 34));
+        _themeToggle.Anchor = AnchorStyles.Right;
+        _themeToggle.Margin = new Padding(UiTheme.Scale(this, UiTheme.Space8), 0, 0, 0);
+        _toolTips.SetToolTip(_themeToggle, "Switch between light and dark mode.");
         header.Controls.Add(titleStack, 0, 0);
         header.Controls.Add(pill, 1, 0);
+        header.Controls.Add(_themeToggle, 2, 0);
         return header;
     }
 

@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Win32;
 using System.Windows.Forms;
 
 namespace ImageMetadataCleaner;
@@ -61,8 +62,96 @@ internal sealed partial class MainForm : Form
             _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
         };
         _process.Click += async (_, _) => await ProcessBatchAsync();
-        Shown += async (_, _) => await UpdateService.CheckForUpdatesAsync(this, quiet: true);
+        _themeToggle.Click += (_, _) => ToggleTheme();
+        Shown += async (_, _) =>
+        {
+            SystemEvents.UserPreferenceChanged += HandleUserPreferenceChanged;
+            if (UiTheme.RefreshSystemTheme(out var colorRemapping)) ApplyTheme(colorRemapping);
+            await UpdateService.CheckForUpdatesAsync(this, quiet: true);
+        };
     }
+
+    private void HandleUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (!UiTheme.RefreshSystemTheme(out var colorRemapping) || IsDisposed || Disposing) return;
+        if (InvokeRequired)
+        {
+            if (IsHandleCreated) BeginInvoke(new Action(() => ApplyTheme(colorRemapping)));
+            return;
+        }
+
+        ApplyTheme(colorRemapping);
+    }
+
+    private void ApplyTheme(IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        SuspendLayout();
+        ApplyTheme(this, colorRemapping);
+        _themeToggle.Text = UiTheme.IsDark ? "Dark" : "Light";
+        ResumeLayout(true);
+    }
+
+    private void ToggleTheme()
+    {
+        try
+        {
+            UiTheme.SetDark(!UiTheme.IsDark, out var colorRemapping);
+            ApplyTheme(colorRemapping);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException or InvalidOperationException)
+        {
+            MessageBox.Show(this, $"The theme preference could not be saved.\n\n{ex.Message}", "Could not change theme", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private static void ApplyTheme(Control control, IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        control.BackColor = Remap(control.BackColor, colorRemapping);
+        control.ForeColor = Remap(control.ForeColor, colorRemapping);
+        if (control is PillLabel pill)
+        {
+            pill.BackColor = UiTheme.PillBackground;
+            pill.ForeColor = UiTheme.PillText;
+        }
+        if (control is RoundedPanel panel) panel.BorderColor = UiTheme.Border;
+        if (control is LinkLabel link)
+        {
+            link.LinkColor = Remap(link.LinkColor, colorRemapping);
+            link.ActiveLinkColor = Remap(link.ActiveLinkColor, colorRemapping);
+            link.VisitedLinkColor = Remap(link.VisitedLinkColor, colorRemapping);
+        }
+        if (control is DataGridView grid)
+        {
+            grid.BackgroundColor = Remap(grid.BackgroundColor, colorRemapping);
+            grid.GridColor = Remap(grid.GridColor, colorRemapping);
+            ApplyTheme(grid.DefaultCellStyle, colorRemapping);
+            ApplyTheme(grid.AlternatingRowsDefaultCellStyle, colorRemapping);
+            ApplyTheme(grid.ColumnHeadersDefaultCellStyle, colorRemapping);
+            ApplyTheme(grid.RowHeadersDefaultCellStyle, colorRemapping);
+            foreach (DataGridViewColumn column in grid.Columns)
+                ApplyTheme(column.DefaultCellStyle, colorRemapping);
+            foreach (DataGridViewRow row in grid.Rows)
+            {
+                ApplyTheme(row.DefaultCellStyle, colorRemapping);
+                foreach (DataGridViewCell cell in row.Cells)
+                    ApplyTheme(cell.Style, colorRemapping);
+            }
+        }
+
+        foreach (Control child in control.Controls) ApplyTheme(child, colorRemapping);
+        control.Invalidate();
+    }
+
+    private static void ApplyTheme(DataGridViewCellStyle style, IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        style.BackColor = Remap(style.BackColor, colorRemapping);
+        style.ForeColor = Remap(style.ForeColor, colorRemapping);
+        style.SelectionBackColor = Remap(style.SelectionBackColor, colorRemapping);
+        style.SelectionForeColor = Remap(style.SelectionForeColor, colorRemapping);
+    }
+
+    private static Color Remap(Color color, IReadOnlyDictionary<int, Color> colorRemapping) =>
+        colorRemapping.TryGetValue(color.ToArgb(), out var replacement) ? replacement : color;
 
     private static bool IsJpeg(string path) => MediaInspector.IsJpeg(path);
     private static bool IsVideo(string path) => MediaInspector.IsVideo(path);

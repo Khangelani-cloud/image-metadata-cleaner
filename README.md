@@ -16,6 +16,8 @@ If Windows warns that the app is from an unknown publisher, that is because this
 2. Choose whether to remove C2PA alone or C2PA plus all XMP.
 3. Choose where to save the batch and select **Inspect and create cleaned copies**.
 
+The app initially follows Windows' light or dark app theme and updates if the system preference changes while it is open. Use the **Light**/**Dark** button in the top-right corner to choose a mode; that choice is saved for future launches.
+
 The app makes a new dated folder for each batch. Original files are never modified. It saves a CSV report, a JSON report, and a short explanation beside the cleaned copies. Unsupported video formats and damaged files are reported as skipped.
 
 **Remove C2PA only** keeps XMP, EXIF, IPTC, ICC profiles, JFIF and other JPEG metadata. Provenance details that may also appear in XMP remain.

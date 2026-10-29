@@ -1,5 +1,6 @@
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using Microsoft.Win32;
 using System.Windows.Forms;
 
 namespace ImageMetadataCleaner;
@@ -10,36 +11,45 @@ internal static class UiTheme
     private static readonly Dictionary<(float Size, FontStyle Style), Font> Fonts = new();
     private static readonly Dictionary<int, SolidBrush> Brushes = new();
     private static readonly Dictionary<(int Color, float Width, DashStyle Dash), Pen> Pens = new();
+    private static readonly IReadOnlyDictionary<string, Color> LightPalette = CreatePalette(dark: false);
+    private static readonly IReadOnlyDictionary<string, Color> DarkPalette = CreatePalette(dark: true);
+    private const string PreferencesKey = @"Software\ImageMetadataCleaner\Preferences";
+    private const string ThemePreferenceName = "Theme";
+    private static bool? _darkOverride = ReadThemeOverride();
+    private static IReadOnlyDictionary<string, Color> _colors = (_darkOverride ?? !ReadSystemUsesLightTheme()) ? DarkPalette : LightPalette;
 
-    public static readonly Color Window = Color.FromArgb(244, 246, 245);
-    public static readonly Color Surface = Color.White;
-    public static readonly Color Border = Color.FromArgb(227, 231, 229);
-    public static readonly Color UnselectedOptionBorder = Color.FromArgb(203, 210, 207);
-    public static readonly Color Text = Color.FromArgb(31, 41, 55);
-    public static readonly Color Secondary = Color.FromArgb(91, 102, 112);
-    public static readonly Color Accent = Color.FromArgb(31, 111, 84);
-    public static readonly Color AccentTint = Color.FromArgb(241, 248, 244);
-    public static readonly Color AccentBorder = Color.FromArgb(157, 184, 172);
-    public static readonly Color AccentDark = Color.FromArgb(22, 79, 60);
-    public static readonly Color AccentHover = Color.FromArgb(26, 95, 72);
-    public static readonly Color DisabledAccent = Color.FromArgb(86, 122, 106);
-    public static readonly Color QuietHover = Color.FromArgb(238, 241, 239);
-    public static readonly Color DisabledText = Color.FromArgb(107, 116, 123);
-    public static readonly Color InputBackground = Color.FromArgb(248, 250, 249);
-    public static readonly Color DropBackground = Color.FromArgb(246, 250, 248);
-    public static readonly Color HeaderText = Color.FromArgb(74, 85, 96);
-    public static readonly Color RowHover = Color.FromArgb(241, 248, 244);
-    public static readonly Color RowAlternate = Color.FromArgb(250, 251, 250);
-    public static readonly Color RowDivider = Color.FromArgb(238, 241, 239);
-    public static readonly Color ProgressTrack = Color.FromArgb(227, 231, 229);
-    public static readonly Color WarningBackground = Color.FromArgb(255, 246, 224);
-    public static readonly Color WarningText = Color.FromArgb(107, 68, 0);
-    public static readonly Color CleanedBackground = Color.FromArgb(223, 243, 232);
-    public static readonly Color CleanedText = Color.FromArgb(20, 87, 58);
-    public static readonly Color NothingBackground = Color.FromArgb(255, 241, 214);
-    public static readonly Color FailedBackground = Color.FromArgb(253, 230, 230);
-    public static readonly Color FailedText = Color.FromArgb(138, 28, 28);
-    public static readonly Color PillBackground = Color.FromArgb(227, 240, 234);
+    public static bool IsDark => ReferenceEquals(_colors, DarkPalette);
+
+    public static Color Window => _colors[nameof(Window)];
+    public static Color Surface => _colors[nameof(Surface)];
+    public static Color Border => _colors[nameof(Border)];
+    public static Color UnselectedOptionBorder => _colors[nameof(UnselectedOptionBorder)];
+    public static Color Text => _colors[nameof(Text)];
+    public static Color Secondary => _colors[nameof(Secondary)];
+    public static Color Accent => _colors[nameof(Accent)];
+    public static Color AccentTint => _colors[nameof(AccentTint)];
+    public static Color AccentBorder => _colors[nameof(AccentBorder)];
+    public static Color AccentDark => _colors[nameof(AccentDark)];
+    public static Color AccentHover => _colors[nameof(AccentHover)];
+    public static Color DisabledAccent => _colors[nameof(DisabledAccent)];
+    public static Color QuietHover => _colors[nameof(QuietHover)];
+    public static Color DisabledText => _colors[nameof(DisabledText)];
+    public static Color InputBackground => _colors[nameof(InputBackground)];
+    public static Color DropBackground => _colors[nameof(DropBackground)];
+    public static Color HeaderText => _colors[nameof(HeaderText)];
+    public static Color RowHover => _colors[nameof(RowHover)];
+    public static Color RowAlternate => _colors[nameof(RowAlternate)];
+    public static Color RowDivider => _colors[nameof(RowDivider)];
+    public static Color ProgressTrack => _colors[nameof(ProgressTrack)];
+    public static Color WarningBackground => _colors[nameof(WarningBackground)];
+    public static Color WarningText => _colors[nameof(WarningText)];
+    public static Color CleanedBackground => _colors[nameof(CleanedBackground)];
+    public static Color CleanedText => _colors[nameof(CleanedText)];
+    public static Color NothingBackground => _colors[nameof(NothingBackground)];
+    public static Color FailedBackground => _colors[nameof(FailedBackground)];
+    public static Color FailedText => _colors[nameof(FailedText)];
+    public static Color PillBackground => _colors[nameof(PillBackground)];
+    public static Color PillText => _colors[nameof(PillText)];
 
     public const int CardRadius = 12;
     public const int ControlRadius = 8;
@@ -72,6 +82,50 @@ internal static class UiTheme
     public const float NoticeFont = 9.25f;
     public const float OutputFont = 9.5f;
     public const float FooterFont = 8.5f;
+
+    public static bool RefreshSystemTheme(out IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        if (_darkOverride.HasValue)
+        {
+            colorRemapping = new Dictionary<int, Color>();
+            return false;
+        }
+
+        var next = ReadSystemUsesLightTheme() ? LightPalette : DarkPalette;
+        return SetPalette(next, out colorRemapping);
+    }
+
+    public static bool SetDark(bool dark, out IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        using var key = Registry.CurrentUser.CreateSubKey(PreferencesKey)
+            ?? throw new InvalidOperationException("The app's theme preference could not be saved.");
+        key.SetValue(ThemePreferenceName, dark ? "Dark" : "Light", RegistryValueKind.String);
+        _darkOverride = dark;
+        return SetPalette(dark ? DarkPalette : LightPalette, out colorRemapping);
+    }
+
+    private static bool SetPalette(IReadOnlyDictionary<string, Color> next, out IReadOnlyDictionary<int, Color> colorRemapping)
+    {
+        if (ReferenceEquals(_colors, next))
+        {
+            colorRemapping = new Dictionary<int, Color>();
+            return false;
+        }
+
+        colorRemapping = _colors
+            .GroupBy(entry => entry.Value.ToArgb())
+            .ToDictionary(group => group.Key, group => next[group.First().Key]);
+        _colors = next;
+        return true;
+    }
+
+    private static bool? ReadThemeOverride() =>
+        (Registry.GetValue(@"HKEY_CURRENT_USER\Software\ImageMetadataCleaner\Preferences", ThemePreferenceName, null) as string) switch
+        {
+            "Dark" => true,
+            "Light" => false,
+            _ => null
+        };
 
     public static Font GetFont(float size, FontStyle style = FontStyle.Regular)
     {
@@ -126,6 +180,77 @@ internal static class UiTheme
         var fallback = installed.Families.FirstOrDefault(f => string.Equals(f.Name, "Segoe UI", StringComparison.OrdinalIgnoreCase))?.Name;
         return new FontFamily(preferred ?? fallback ?? System.Drawing.FontFamily.GenericSansSerif.Name);
     }
+
+    private static bool ReadSystemUsesLightTheme() =>
+        Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1) is not int value || value != 0;
+
+    private static IReadOnlyDictionary<string, Color> CreatePalette(bool dark) => dark
+        ? new Dictionary<string, Color>
+        {
+            [nameof(Window)] = Color.FromArgb(25, 29, 28),
+            [nameof(Surface)] = Color.FromArgb(34, 40, 38),
+            [nameof(Border)] = Color.FromArgb(54, 64, 60),
+            [nameof(UnselectedOptionBorder)] = Color.FromArgb(77, 91, 85),
+            [nameof(Text)] = Color.FromArgb(231, 238, 234),
+            [nameof(Secondary)] = Color.FromArgb(172, 185, 178),
+            [nameof(Accent)] = Color.FromArgb(73, 190, 140),
+            [nameof(AccentTint)] = Color.FromArgb(39, 59, 49),
+            [nameof(AccentBorder)] = Color.FromArgb(75, 120, 98),
+            [nameof(AccentDark)] = Color.FromArgb(30, 83, 60),
+            [nameof(AccentHover)] = Color.FromArgb(63, 168, 122),
+            [nameof(DisabledAccent)] = Color.FromArgb(66, 104, 85),
+            [nameof(QuietHover)] = Color.FromArgb(45, 54, 50),
+            [nameof(DisabledText)] = Color.FromArgb(139, 151, 145),
+            [nameof(InputBackground)] = Color.FromArgb(30, 36, 34),
+            [nameof(DropBackground)] = Color.FromArgb(31, 41, 36),
+            [nameof(HeaderText)] = Color.FromArgb(183, 197, 189),
+            [nameof(RowHover)] = Color.FromArgb(42, 59, 49),
+            [nameof(RowAlternate)] = Color.FromArgb(39, 46, 43),
+            [nameof(RowDivider)] = Color.FromArgb(49, 58, 54),
+            [nameof(ProgressTrack)] = Color.FromArgb(54, 64, 60),
+            [nameof(WarningBackground)] = Color.FromArgb(74, 57, 27),
+            [nameof(WarningText)] = Color.FromArgb(248, 216, 145),
+            [nameof(CleanedBackground)] = Color.FromArgb(31, 59, 44),
+            [nameof(CleanedText)] = Color.FromArgb(166, 230, 188),
+            [nameof(NothingBackground)] = Color.FromArgb(69, 55, 27),
+            [nameof(FailedBackground)] = Color.FromArgb(72, 39, 39),
+            [nameof(FailedText)] = Color.FromArgb(255, 180, 171),
+            [nameof(PillBackground)] = Color.FromArgb(42, 62, 51),
+            [nameof(PillText)] = Color.FromArgb(184, 226, 202)
+        }
+        : new Dictionary<string, Color>
+        {
+            [nameof(Window)] = Color.FromArgb(244, 246, 245),
+            [nameof(Surface)] = Color.White,
+            [nameof(Border)] = Color.FromArgb(227, 231, 229),
+            [nameof(UnselectedOptionBorder)] = Color.FromArgb(203, 210, 207),
+            [nameof(Text)] = Color.FromArgb(31, 41, 55),
+            [nameof(Secondary)] = Color.FromArgb(91, 102, 112),
+            [nameof(Accent)] = Color.FromArgb(31, 111, 84),
+            [nameof(AccentTint)] = Color.FromArgb(241, 248, 244),
+            [nameof(AccentBorder)] = Color.FromArgb(157, 184, 172),
+            [nameof(AccentDark)] = Color.FromArgb(22, 79, 60),
+            [nameof(AccentHover)] = Color.FromArgb(26, 95, 72),
+            [nameof(DisabledAccent)] = Color.FromArgb(86, 122, 106),
+            [nameof(QuietHover)] = Color.FromArgb(238, 241, 239),
+            [nameof(DisabledText)] = Color.FromArgb(107, 116, 123),
+            [nameof(InputBackground)] = Color.FromArgb(248, 250, 249),
+            [nameof(DropBackground)] = Color.FromArgb(246, 250, 248),
+            [nameof(HeaderText)] = Color.FromArgb(74, 85, 96),
+            [nameof(RowHover)] = Color.FromArgb(241, 248, 244),
+            [nameof(RowAlternate)] = Color.FromArgb(250, 251, 250),
+            [nameof(RowDivider)] = Color.FromArgb(238, 241, 239),
+            [nameof(ProgressTrack)] = Color.FromArgb(227, 231, 229),
+            [nameof(WarningBackground)] = Color.FromArgb(255, 246, 224),
+            [nameof(WarningText)] = Color.FromArgb(107, 68, 0),
+            [nameof(CleanedBackground)] = Color.FromArgb(223, 243, 232),
+            [nameof(CleanedText)] = Color.FromArgb(20, 87, 58),
+            [nameof(NothingBackground)] = Color.FromArgb(255, 241, 214),
+            [nameof(FailedBackground)] = Color.FromArgb(253, 230, 230),
+            [nameof(FailedText)] = Color.FromArgb(138, 28, 28),
+            [nameof(PillBackground)] = Color.FromArgb(227, 240, 234),
+            [nameof(PillText)] = Color.FromArgb(22, 79, 60)
+        };
 }
 
 internal enum IconKind
@@ -364,9 +489,12 @@ internal sealed class RoundedActionButton : RoundedControlBase
             Icons.Draw(e.Graphics, Icon.Value, iconBounds, foreground);
             startX += iconSize + gap;
         }
-        var textBounds = new Rectangle(startX, bounds.Top, Math.Max(1, bounds.Right - startX), bounds.Height);
+        var textBounds = Icon.HasValue
+            ? new Rectangle(startX, bounds.Top, Math.Max(1, bounds.Right - startX), bounds.Height)
+            : bounds;
         TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, foreground,
-            TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine
+                | (Icon.HasValue ? 0 : TextFormatFlags.HorizontalCenter));
         if (Focused && ShowFocusCues)
         {
             bounds.Inflate(-UiTheme.Scale(this, 3), -UiTheme.Scale(this, 3));
@@ -643,7 +771,7 @@ internal sealed class PillLabel : RoundedControlBase
     public PillLabel()
     {
         BackColor = UiTheme.PillBackground;
-        ForeColor = UiTheme.AccentDark;
+        ForeColor = UiTheme.PillText;
         Font = UiTheme.GetFont(UiTheme.SmallFont);
         CornerRadius = 16;
         AutoSize = true;
