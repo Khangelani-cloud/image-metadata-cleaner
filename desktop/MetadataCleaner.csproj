@@ -10,7 +10,7 @@
     <AssemblyName>Image Metadata Cleaner</AssemblyName>
     <RootNamespace>ImageMetadataCleaner</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version Condition="'$(Version)' == ''">1.3.0</Version>
+    <Version Condition="'$(Version)' == ''">1.5.0</Version>
     <UpdateRepository Condition="'$(UpdateRepository)' == ''"></UpdateRepository>
   </PropertyGroup>
   <ItemGroup>

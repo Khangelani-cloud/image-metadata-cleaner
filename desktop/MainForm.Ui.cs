@@ -22,6 +22,11 @@ internal sealed partial class MainForm
     private readonly ThinProgressBar _progress = new() { Dock = DockStyle.Fill };
     private readonly Label _progressCaption = new() { AutoSize = true, ForeColor = UiTheme.Secondary };
     private readonly RoundedTextBox _output = new() { Dock = DockStyle.Fill };
+    private readonly ComboBox _namingStyle = new() { DropDownStyle = ComboBoxStyle.DropDownList, AccessibleName = "File naming style" };
+    private readonly TextBox _customName = new() { Text = "Cleaned", AccessibleName = "Custom file name" };
+    private readonly NumericUpDown _startingNumber = new() { Minimum = 1, Maximum = 999999999, Value = 1, AccessibleName = "Starting sequence number" };
+    private readonly Label _namingPreview = new() { AutoSize = true, ForeColor = UiTheme.Secondary, BackColor = UiTheme.Surface };
+    private Control? _namingFields;
     private string? _completedFolder;
     private BufferedTableLayoutPanel? _fileListLayout;
 
@@ -192,10 +197,11 @@ internal sealed partial class MainForm
         var layout = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Surface, ColumnCount = 1, RowCount = 4, Margin = Padding.Empty };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(SectionHeading("3", "Save copies and view the report"), 0, 0);
         layout.Controls.Add(BuildPathRow(), 0, 1);
+        layout.Controls.Add(BuildNamingOptions(), 0, 2);
         var gridHost = new RoundedPanel
         {
             Dock = DockStyle.Fill,
@@ -209,10 +215,132 @@ internal sealed partial class MainForm
         };
         ConfigureResultsGrid();
         gridHost.Controls.Add(_results);
-        layout.Controls.Add(gridHost, 0, 2);
-        layout.Controls.Add(BuildActionRow(), 0, 3);
+        layout.Controls.Add(gridHost, 0, 3);
         card.Controls.Add(layout);
         return card;
+    }
+
+    private Control BuildNamingOptions()
+    {
+        _namingStyle.Items.AddRange(FileNaming.FormatNames.Cast<object>().ToArray());
+        _namingStyle.SelectedIndex = (int)FileNamingFormat.CurrentStyle;
+        _namingStyle.Font = UiTheme.GetFont(UiTheme.OutputFont);
+        _namingStyle.ForeColor = UiTheme.Text;
+        _namingStyle.BackColor = UiTheme.InputBackground;
+        _namingStyle.Width = UiTheme.Scale(this, 250);
+        _namingStyle.Height = UiTheme.Scale(this, 34);
+
+        _customName.Font = UiTheme.GetFont(UiTheme.OutputFont);
+        _customName.ForeColor = UiTheme.Text;
+        _customName.BackColor = UiTheme.InputBackground;
+        _customName.BorderStyle = BorderStyle.FixedSingle;
+        _customName.Width = UiTheme.Scale(this, 190);
+        _customName.Height = UiTheme.Scale(this, 30);
+
+        _startingNumber.Font = UiTheme.GetFont(UiTheme.OutputFont);
+        _startingNumber.ForeColor = UiTheme.Text;
+        _startingNumber.BackColor = UiTheme.InputBackground;
+        _startingNumber.Width = UiTheme.Scale(this, 100);
+        _startingNumber.Height = UiTheme.Scale(this, 30);
+
+        var settings = new BufferedFlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            WrapContents = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            BackColor = UiTheme.Surface,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
+        settings.Controls.Add(NamingField("Style", _namingStyle));
+        settings.Controls.Add(NamingField("Custom name", _customName, FileNaming.RequiresCustomName));
+        settings.Controls.Add(NamingField("Start number", _startingNumber, FileNaming.UsesSequence));
+        _namingFields = settings;
+
+        _namingStyle.SelectedIndexChanged += (_, _) => UpdateNamingOptions();
+        _customName.TextChanged += (_, _) => UpdateNamingPreview();
+        _startingNumber.ValueChanged += (_, _) => UpdateNamingPreview();
+        UpdateNamingOptions();
+
+        var content = new BufferedTableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            BackColor = UiTheme.Surface,
+            ColumnCount = 1,
+            RowCount = 3,
+            Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space12), 0, 0)
+        };
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        content.Controls.Add(new Label
+        {
+            Text = "File naming",
+            AutoSize = true,
+            Font = UiTheme.GetFont(UiTheme.BodyFont, FontStyle.Bold),
+            ForeColor = UiTheme.Text,
+            BackColor = UiTheme.Surface,
+            Margin = new Padding(0, 0, 0, UiTheme.Scale(this, UiTheme.Space8))
+        }, 0, 0);
+        content.Controls.Add(settings, 0, 1);
+        _namingPreview.Margin = new Padding(0, UiTheme.Scale(this, UiTheme.Space8), 0, 0);
+        content.Controls.Add(_namingPreview, 0, 2);
+        UpdateNamingPreview();
+        return content;
+    }
+
+    private Control NamingField(string label, Control input, Func<FileNamingFormat, bool>? visibleFor = null)
+    {
+        var field = new BufferedFlowLayoutPanel
+        {
+            AutoSize = true,
+            WrapContents = false,
+            FlowDirection = FlowDirection.TopDown,
+            BackColor = UiTheme.Surface,
+            Margin = new Padding(0, 0, UiTheme.Scale(this, UiTheme.Space16), 0),
+            Padding = Padding.Empty,
+            Tag = visibleFor
+        };
+        field.Controls.Add(new Label
+        {
+            Text = label,
+            AutoSize = true,
+            Font = UiTheme.GetFont(UiTheme.SecondaryFont),
+            ForeColor = UiTheme.Secondary,
+            BackColor = UiTheme.Surface,
+            Margin = new Padding(0, 0, 0, UiTheme.Scale(this, UiTheme.Space4))
+        });
+        field.Controls.Add(input);
+        return field;
+    }
+
+    private void UpdateNamingOptions()
+    {
+        var format = (FileNamingFormat)_namingStyle.SelectedIndex;
+        if (_namingFields is null) return;
+        foreach (var field in _namingFields.Controls.OfType<Control>())
+            if (field.Tag is Func<FileNamingFormat, bool> predicate)
+                field.Visible = predicate(format);
+        UpdateNamingPreview();
+    }
+
+    private void UpdateNamingPreview()
+    {
+        if (_namingStyle.SelectedIndex < 0) return;
+        var format = (FileNamingFormat)_namingStyle.SelectedIndex;
+        var path = _paths.FirstOrDefault() ?? "Photo.jpg";
+        var extension = IsVideo(path) ? Path.GetExtension(path) : ".jpg";
+        var preview = FileNaming.CreateFileName(
+            path,
+            1,
+            Math.Max(1, _paths.Count),
+            (int)_startingNumber.Value,
+            format,
+            _customName.Text,
+            extension);
+        _namingPreview.Text = $"Example: {preview}";
     }
 
     private Control BuildPathRow()
@@ -491,6 +619,7 @@ internal sealed partial class MainForm
         }
         if (!_busy && _completedFolder == null)
             _progressCaption.Text = count == 0 ? "Add photos or videos to begin." : "";
+        UpdateNamingPreview();
         _removeSelectedButton.Enabled = _files.SelectedItems.Count > 0;
         _clearListButton.Enabled = count > 0;
     }

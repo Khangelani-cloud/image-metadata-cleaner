@@ -14,7 +14,10 @@ If Windows warns that the app is from an unknown publisher, that is because this
 
 1. Add JPEG images or MP4, M4V, and MOV videos, or choose a folder. Folder selection includes subfolders.
 2. Choose whether to remove C2PA alone or C2PA plus all XMP.
-3. Choose where to save the batch and select **Inspect and create cleaned copies**.
+3. Choose where to save the batch and select a file-naming style. The default keeps the existing numbered “cleaned” names; other styles can keep the original filename, add a sequence or date, or use a custom name. Sequence styles let you choose a starting number, and the example updates as you change the options. Date-based names use the source file's modified date.
+4. Select **Inspect and create cleaned copies**.
+
+Custom-name styles include the item position in the batch, the trailing number from the source filename (or its batch position when there is no trailing number), a configurable sequence, or no number. If two files would have the same name, the app adds a suffix to keep both copies.
 
 The app initially follows Windows' light or dark app theme and updates if the system preference changes while it is open. Use the **Light**/**Dark** button in the top-right corner to choose a mode; that choice is saved for future launches.
 

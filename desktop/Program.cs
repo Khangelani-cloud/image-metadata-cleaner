@@ -40,12 +40,13 @@ internal sealed partial class MainForm : Form
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         SuspendLayout();
 
-        var outer = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, Padding = new Padding(UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16), UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16)), ColumnCount = 1, RowCount = 5 };
+        var outer = new BufferedTableLayoutPanel { Dock = DockStyle.Fill, BackColor = UiTheme.Window, Padding = new Padding(UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16), UiTheme.Scale(this, UiTheme.Space32), UiTheme.Scale(this, UiTheme.Space16)), ColumnCount = 1, RowCount = 6 };
         outer.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         outer.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         outer.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         Controls.Add(outer);
 
@@ -53,7 +54,8 @@ internal sealed partial class MainForm : Form
         outer.Controls.Add(BuildImagesCard(), 0, 1);
         outer.Controls.Add(BuildOptionsCard(), 0, 2);
         outer.Controls.Add(BuildReportCard(), 0, 3);
-        outer.Controls.Add(BuildFooter(), 0, 4);
+        outer.Controls.Add(BuildActionRow(), 0, 4);
+        outer.Controls.Add(BuildFooter(), 0, 5);
         ResumeLayout(true);
 
         _files.SelectedIndexChanged += (_, _) =>
@@ -177,6 +179,15 @@ internal sealed partial class MainForm : Form
     {
         if (_busy || _paths.Count == 0) return;
         var selected = _paths.ToArray();
+        var namingFormat = (FileNamingFormat)_namingStyle.SelectedIndex;
+        if (FileNaming.RequiresCustomName(namingFormat) && string.IsNullOrWhiteSpace(_customName.Text))
+        {
+            MessageBox.Show(this, "Enter a custom name or choose a different naming style.", "Custom name required", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _customName.Focus();
+            return;
+        }
+        var customName = _customName.Text;
+        var startingNumber = (int)_startingNumber.Value;
         var target = _output.Text.Trim();
         if (string.IsNullOrWhiteSpace(target)) { MessageBox.Show(this, "Choose a folder for the cleaned copies.", "Choose a save folder", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
         try { Directory.CreateDirectory(target); }
@@ -210,7 +221,8 @@ internal sealed partial class MainForm : Form
                     var videoRow = new ReportRow { File = path, MediaKind = result.MediaKind, Status = result.Status, Error = result.Error, Findings = result.Findings, Metadata = result.ImageMetadata, VideoMetadata = result.VideoMetadata };
                     if (result.IsSupported)
                     {
-                        var outputName = MakeUniqueName(target, Path.GetFileNameWithoutExtension(path), index + 1, Path.GetExtension(path));
+                        var requestedName = FileNaming.CreateFileName(path, index + 1, selected.Length, startingNumber, namingFormat, customName, Path.GetExtension(path));
+                        var outputName = FileNaming.MakeUniqueName(target, requestedName);
                         partialOutputPath = Path.Combine(target, outputName);
                         var removed = await Task.Run(() =>
                         {
@@ -239,8 +251,8 @@ internal sealed partial class MainForm : Form
                     var data = await File.ReadAllBytesAsync(path);
                     var info = JpegMetadata.Inspect(data);
                     var (cleaned, removed) = JpegMetadata.Clean(data, removeXmp);
-                    var fileBase = Path.GetFileNameWithoutExtension(path);
-                    var outputName = MakeUniqueName(target, fileBase, index + 1);
+                    var requestedName = FileNaming.CreateFileName(path, index + 1, selected.Length, startingNumber, namingFormat, customName, ".jpg");
+                    var outputName = FileNaming.MakeUniqueName(target, requestedName);
                     await File.WriteAllBytesAsync(Path.Combine(target, outputName), cleaned);
                     var photoRow = new ReportRow { File = path, MediaKind = MediaKind.Image, Status = "Cleaned", Output = outputName, Metadata = info, Removed = removed, BytesIn = data.Length, BytesOut = cleaned.Length, Mode = removeXmp ? "C2PA + all XMP" : "C2PA only" };
                     records.Add(photoRow); cleanedCount++;
@@ -299,17 +311,6 @@ internal sealed partial class MainForm : Form
         _results.Rows[index].Cells[3].ToolTipText = row.Error ?? (found.Count == 0 ? "No target metadata found." : string.Join(", ", found));
         _results.Rows[index].Cells[4].ToolTipText = claims;
         _results.Invalidate();
-    }
-
-    private static string MakeUniqueName(string folder, string stem, int ordinal, string extension = ".jpg")
-    {
-        var safe = Regex.Replace(stem, @"[^\p{L}\p{Nd}._ -]", "_").Trim(' ', '.');
-        if (safe.Length > 100) safe = safe[..100];
-        if (string.IsNullOrWhiteSpace(safe)) safe = "media";
-        var candidate = $"{ordinal:0000}_{safe}_cleaned{extension}";
-        var suffix = 1;
-        while (File.Exists(Path.Combine(folder, candidate))) candidate = $"{ordinal:0000}_{safe}_cleaned_{suffix++}{extension}";
-        return candidate;
     }
 
     private static string BuildCsv(IEnumerable<ReportRow> rows)
