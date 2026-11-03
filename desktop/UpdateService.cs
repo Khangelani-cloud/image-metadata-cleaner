@@ -19,6 +19,14 @@ internal static class UpdateService
         return string.Equals(Normalize(name), Normalize(AssetName), StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static bool IsSha256DigestValid(string? digest, string actual)
+    {
+        if (digest is null || digest.Length != 71 || !digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) return false;
+        for (var index = 7; index < digest.Length; index++)
+            if (!Uri.IsHexDigit(digest[index])) return false;
+        return string.Equals(actual, digest, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static HttpClient CreateClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
@@ -76,15 +84,13 @@ internal static class UpdateService
                 await input.CopyToAsync(output);
             }
 
-            if (asset.TryGetProperty("digest", out var digestValue))
+            if (!asset.TryGetProperty("digest", out var digestValue) || string.IsNullOrWhiteSpace(digestValue.GetString()))
+                throw new InvalidDataException("The update package does not provide a SHA-256 digest.");
+            var digest = digestValue.GetString();
+            await using (var input = File.OpenRead(installerPath))
             {
-                var digest = digestValue.GetString();
-                if (!string.IsNullOrWhiteSpace(digest) && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
-                {
-                    await using var input = File.OpenRead(installerPath);
-                    var actual = "sha256:" + Convert.ToHexString(await SHA256.HashDataAsync(input)).ToLowerInvariant();
-                    if (!string.Equals(actual, digest, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("The downloaded update did not pass its file check.");
-                }
+                var actual = "sha256:" + Convert.ToHexString(await SHA256.HashDataAsync(input)).ToLowerInvariant();
+                if (!IsSha256DigestValid(digest, actual)) throw new InvalidDataException("The downloaded update did not pass its file check.");
             }
 
             var installFolder = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
